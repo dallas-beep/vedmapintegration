@@ -303,7 +303,7 @@
             }
 
             document.getElementById('mapStatus').innerText = `${resolvedEvents.length} events live`;
-            renderMap();
+            filterEvents();
 
         } catch (error) {
             console.error('Error:', error);
@@ -375,14 +375,13 @@
                 browserUrl: "https://www.mobilize.us/voteearlydaypubliccitizen/event/1029930/"
             }
         ];
-        renderMap();
+        filterEvents();
     }
 
     function renderMap() {
         markersLayer.clearLayers();
-        filteredEvents = resolvedEvents;
 
-        resolvedEvents.forEach(event => {
+        filteredEvents.forEach(event => {
             const marker = L.marker([event.lat, event.lon]).addTo(markersLayer);
             
             const popupContent = `
@@ -423,11 +422,6 @@
         });
     }
 
-    document.getElementById('searchBtn').addEventListener('click', filterEvents);
-    document.getElementById('zipSearchInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') filterEvents();
-    });
-
     function filterEvents() {
         const searchQuery = document.getElementById('zipSearchInput').value.toLowerCase();
 
@@ -435,11 +429,18 @@
             return !searchQuery || 
                 event.city.toLowerCase().includes(searchQuery) ||
                 event.state.toLowerCase().includes(searchQuery) ||
-                event.zip.includes(searchQuery);
+                event.zip.includes(searchQuery) ||
+                event.address.toLowerCase().includes(searchQuery);
         });
 
-        updateSidebar();
+        renderMap();
     }
+
+    document.getElementById('searchBtn').addEventListener('click', filterEvents);
+    document.getElementById('zipSearchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') filterEvents();
+    });
+    document.getElementById('zipSearchInput').addEventListener('input', filterEvents);
 </script>
 
 </body>
