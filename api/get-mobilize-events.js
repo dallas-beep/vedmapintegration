@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 const { parse } = require('csv-parse/sync');
 
-export default async (req, res) => {
+module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
