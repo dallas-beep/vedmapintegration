@@ -1,5 +1,5 @@
 const fetch = require('node-fetch');
-const csv = require('csv-parse/sync');
+const { parse } = require('csv-parse/sync');
 
 export default async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -23,7 +23,7 @@ export default async (req, res) => {
     }
 
     const csvText = await response.text();
-    const records = csv.parse(csvText, {
+    const records = parse(csvText, {
       columns: true,
       skip_empty_lines: true
     });
