@@ -41,6 +41,7 @@ export default async (req, res) => {
       const dateInfo = record.J ? record.J.trim() : '';
       const timeInfo = record.L ? record.L.trim() : '';
       const locationText = record.M ? record.M.trim() : '';
+      const registrationLink = record.O ? record.O.trim() : '';
 
       if (!eventName || !locationText) {
         continue;
@@ -72,7 +73,7 @@ export default async (req, res) => {
           zip: '',
           lat: parseFloat(geo.lat),
           lon: parseFloat(geo.lon),
-          browserUrl: '#'
+          browserUrl: registrationLink
         });
       } catch (geoError) {
         console.error(`Geocoding error for ${locationText}:`, geoError);
