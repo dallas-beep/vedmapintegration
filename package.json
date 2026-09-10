@@ -2,6 +2,7 @@
   "name": "vote-early-day-map",
   "version": "1.0.0",
   "dependencies": {
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.6.7",
+    "csv-parse": "^5.3.0"
   }
 }
