@@ -1,10 +1,7 @@
 const fetch = require('node-fetch');
+const csv = require('csv-parse/sync');
 
 export default async (req, res) => {
-  const MOBILIZE_API_KEY = '978b6a20852fb9ba866ece245c176e12f331c298';
-  const MOBILIZE_ORG_ID = '54046';
-  const MOBILIZE_API_BASE = 'https://api.mobilize.us/v1';
-
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
@@ -15,22 +12,77 @@ export default async (req, res) => {
   }
 
   try {
-    const url = `${MOBILIZE_API_BASE}/organizations/${MOBILIZE_ORG_ID}/events?approval_status=APPROVED&per_page=100`;
-    
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${MOBILIZE_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    // Google Sheet CSV export URL
+    const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
+    const GID = '619059883';
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
+    const response = await fetch(csvUrl);
     if (!response.ok) {
-      throw new Error(`Mobilize API error: ${response.status}`);
+      throw new Error(`Failed to fetch sheet: ${response.status}`);
     }
 
-    const data = await response.json();
-    
-    res.status(200).json(data);
+    const csvText = await response.text();
+    const records = csv.parse(csvText, {
+      columns: true,
+      skip_empty_lines: true
+    });
+
+    const events = [];
+
+    for (const record of records) {
+      // Filter: only show if column N (public) = "Yes"
+      if (record.N && record.N.trim().toLowerCase() !== 'yes') {
+        continue;
+      }
+
+      const eventName = record.K ? record.K.trim() : '';
+      const hostOrg = record.C ? record.C.trim() : '';
+      const dateInfo = record.J ? record.J.trim() : '';
+      const timeInfo = record.L ? record.L.trim() : '';
+      const locationText = record.M ? record.M.trim() : '';
+
+      if (!eventName || !locationText) {
+        continue;
+      }
+
+      // Geocode the location
+      try {
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`
+        );
+        const geoData = await geoResponse.json();
+
+        if (!geoData || geoData.length === 0) {
+          console.warn(`Could not geocode: ${locationText}`);
+          continue;
+        }
+
+        const geo = geoData[0];
+        events.push({
+          id: eventName,
+          title: eventName,
+          hostOrganization: hostOrg,
+          date: dateInfo,
+          time: timeInfo,
+          description: `${hostOrg} - ${dateInfo} ${timeInfo}`,
+          address: locationText,
+          city: '',
+          state: '',
+          zip: '',
+          lat: parseFloat(geo.lat),
+          lon: parseFloat(geo.lon),
+          browserUrl: '#'
+        });
+      } catch (geoError) {
+        console.error(`Geocoding error for ${locationText}:`, geoError);
+      }
+    }
+
+    res.status(200).json({
+      count: events.length,
+      data: events
+    });
 
   } catch (error) {
     console.error('Error:', error);
