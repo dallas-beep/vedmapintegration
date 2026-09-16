@@ -1,9 +1,9 @@
 const fetch = require('node-fetch');
 const { parse } = require('csv-parse/sync');
 
-const PUBLISHED_SHEET_ID = '2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA';
-const EVENTS_TAB_NAME = 'properspreadsheet';
-const EVENTS_TAB_GID = '619059883';
+// This is the actual workbook and the actual events tab supplied for this app.
+const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
+const EVENTS_TAB_GID = '1581051441';
 
 const COLUMN_ALIASES = {
   hostOrganization: ['host organization', 'hostorganization', 'organization', 'host org'],
@@ -15,6 +15,7 @@ const COLUMN_ALIASES = {
   registrationLink: ['registration link', 'registrationlink', 'registration url', 'rsvp', 'rsvp link', 'url', 'link']
 };
 
+// Compatibility fallback for the original spreadsheet layout: C, J, K, L, M, N, O.
 const FALLBACK_COLUMNS = {
   hostOrganization: 2,
   date: 9,
@@ -32,20 +33,17 @@ const normalize = value => String(value == null ? '' : value)
   .replace(/[?_*()[\]{}:#/\\-]+/g, ' ')
   .replace(/\s+/g, ' ');
 
-const isHeaderMatch = (header, aliases) => aliases.some(alias => {
+const matchesHeader = (header, aliases) => aliases.some(alias => {
   const candidate = normalize(alias);
   return header === candidate || header.includes(candidate) || candidate.includes(header);
 });
 
-// Published Google Sheets CSVs sometimes include a title/preamble before the
-// real header. Find the row that actually contains event fields instead of
-// assuming row zero is always the header.
 const findHeader = rows => {
-  let best = { index: 0, score: 0 };
-  rows.slice(0, 10).forEach((row, index) => {
+  let best = { index: -1, score: 0 };
+  rows.slice(0, 15).forEach((row, index) => {
     const headers = row.map(normalize);
     const score = Object.values(COLUMN_ALIASES)
-      .filter(aliases => headers.some(header => isHeaderMatch(header, aliases))).length;
+      .filter(aliases => headers.some(header => matchesHeader(header, aliases))).length;
     if (score > best.score) best = { index, score };
   });
   return best;
@@ -53,7 +51,7 @@ const findHeader = rows => {
 
 const findColumns = headerRow => Object.fromEntries(
   Object.entries(COLUMN_ALIASES).map(([field, aliases]) => {
-    const index = headerRow.findIndex(header => isHeaderMatch(normalize(header), aliases));
+    const index = headerRow.findIndex(header => matchesHeader(normalize(header), aliases));
     return [field, index === -1 ? FALLBACK_COLUMNS[field] : index];
   })
 );
@@ -65,16 +63,19 @@ const valueAt = (row, columns, field) => {
 
 const isPublished = value => ['yes', 'y', 'true', '1', 'published', 'public'].includes(normalize(value));
 
-async function fetchTab({ useName }) {
-  const csvUrl = new URL(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`);
-  csvUrl.searchParams.set('single', 'true');
-  csvUrl.searchParams.set('output', 'csv');
-  if (useName) csvUrl.searchParams.set('sheet', EVENTS_TAB_NAME);
-  else csvUrl.searchParams.set('gid', EVENTS_TAB_GID);
-
-  const response = await fetch(csvUrl.toString());
+async function fetchEventsTab() {
+  // Use the normal workbook export because the provided URL is a /d/ workbook
+  // URL, not a /d/e/ published URL. The gid selects properspreadsheet exactly.
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${EVENTS_TAB_GID}`;
+  const response = await fetch(csvUrl, { headers: { Accept: 'text/csv' } });
   const csvText = await response.text();
-  if (!response.ok) throw new Error(`Google Sheets returned ${response.status}`);
+
+  if (!response.ok) {
+    throw new Error(`Google Sheets export failed (${response.status}) for gid ${EVENTS_TAB_GID}`);
+  }
+  if (/^\s*<(?:!doctype|html)/i.test(csvText)) {
+    throw new Error('Google Sheets returned an HTML/login page instead of CSV. Make the workbook readable by the deployed app or publish the properspreadsheet tab.');
+  }
 
   const rows = parse(csvText, {
     columns: false,
@@ -84,7 +85,10 @@ async function fetchTab({ useName }) {
     trim: false
   });
   const header = findHeader(rows);
-  return { rows, header, columns: findColumns(rows[header.index] || []) };
+  if (!rows.length || header.index < 0 || header.score < 2) {
+    throw new Error(`No event columns found in spreadsheet tab gid ${EVENTS_TAB_GID}. Verify the tab and its header row.`);
+  }
+  return { rows, header, columns: findColumns(rows[header.index]) };
 }
 
 module.exports = async (req, res) => {
@@ -96,27 +100,17 @@ module.exports = async (req, res) => {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    // Prefer the named properspreadsheet tab. Fall back to its configured gid
-    // because some published workbooks ignore the sheet query parameter.
-    let tab;
-    try {
-      tab = await fetchTab({ useName: true });
-      if (tab.header.score < 2) tab = await fetchTab({ useName: false });
-    } catch (nameError) {
-      tab = await fetchTab({ useName: false });
-    }
-
-    if (!tab.rows.length || tab.header.score < 2) {
-      throw new Error(`Could not find event columns in the ${EVENTS_TAB_NAME} tab. Check the published tab name and gid.`);
-    }
-
-    const { rows, header, columns } = tab;
-    const hasPublicColumn = header.index >= 0 && rows[header.index].some(cell => isHeaderMatch(normalize(cell), COLUMN_ALIASES.public));
+    const { rows, header, columns } = await fetchEventsTab();
+    const headerRow = rows[header.index];
+    const hasPublicColumn = headerRow.some(cell => matchesHeader(normalize(cell), COLUMN_ALIASES.public));
     const events = [];
+    let skippedRows = 0;
 
     for (const row of rows.slice(header.index + 1)) {
-      // If the tab has no visibility column, do not discard every event.
-      if (hasPublicColumn && !isPublished(valueAt(row, columns, 'public'))) continue;
+      if (hasPublicColumn && !isPublished(valueAt(row, columns, 'public'))) {
+        skippedRows += 1;
+        continue;
+      }
 
       const eventName = valueAt(row, columns, 'title');
       const hostOrg = valueAt(row, columns, 'hostOrganization');
@@ -124,14 +118,23 @@ module.exports = async (req, res) => {
       const timeInfo = valueAt(row, columns, 'time');
       const locationText = valueAt(row, columns, 'address');
       const registrationLink = valueAt(row, columns, 'registrationLink');
-      if (!eventName || !locationText) continue;
+
+      if (!eventName || !locationText) {
+        skippedRows += 1;
+        continue;
+      }
 
       try {
-        const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`, {
-          headers: { 'User-Agent': 'vedmapintegration/1.0' }
-        });
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`,
+          { headers: { 'User-Agent': 'vedmapintegration/1.0' } }
+        );
         const geoData = await geoResponse.json();
-        if (!geoData || !geoData.length) continue;
+        if (!geoData || !geoData.length) {
+          skippedRows += 1;
+          continue;
+        }
+
         events.push({
           id: eventName,
           title: eventName,
@@ -148,11 +151,12 @@ module.exports = async (req, res) => {
           browserUrl: registrationLink
         });
       } catch (geoError) {
+        skippedRows += 1;
         console.error(`Geocoding error for ${locationText}:`, geoError);
       }
     }
 
-    res.status(200).json({ count: events.length, data: events });
+    res.status(200).json({ count: events.length, data: events, skippedRows });
   } catch (error) {
     console.error('Error loading Google Sheet events:', error);
     res.status(500).json({ error: error.message });
