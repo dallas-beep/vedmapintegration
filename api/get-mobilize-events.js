@@ -1,8 +1,8 @@
 const fetch = require('node-fetch');
 const { parse } = require('csv-parse/sync');
 
-// Set these in Vercel. The defaults keep the endpoint usable locally.
-const PUBLISHED_SHEET_ID = process.env.GOOGLE_PUBLISHED_SHEET_ID || '2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA';
+// Google Sheets spreadsheet ID and tab GID.
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID || '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
 const EVENTS_TAB_GID = process.env.GOOGLE_SHEET_GID || '619059883';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15000;
@@ -28,8 +28,8 @@ const FIELD_ALIASES = {
   description: ['event description', 'briefly describe what you are planning', 'description']
 };
 
-// Fallback indexes for the original form layout when the published sheet has
-// generic or blank column names.
+// Fallback indexes for the original form layout when the sheet has generic
+// or blank column names.
 const LEGACY_COLUMNS = {
   organization: 2,
   date: 9,
@@ -49,8 +49,6 @@ const normalize = value => String(value == null ? '' : value)
 
 const cellMatchesAlias = (value, aliases) => {
   const normalizedValue = normalize(value);
-  // Without this guard, an empty cell matches every alias because every
-  // non-empty string includes an empty string.
   if (!normalizedValue) return false;
 
   return aliases.some(alias => {
@@ -72,7 +70,6 @@ function findHeader(rows) {
     if (score > best.score) best = { index, score };
   });
 
-  // The original form layout can still be read by fixed column indexes.
   return best.index >= 0 && best.score >= 3
     ? best
     : { index: 0, score: 0 };
@@ -129,10 +126,11 @@ async function fetchWithTimeout(url, options = {}, attempts = 3) {
 }
 
 async function fetchRows() {
-  const url = new URL(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`);
+  // This uses the normal spreadsheet ID from the /d/<ID>/edit URL.
+  // It does not use a 2PACX published-sheet ID.
+  const url = new URL(`https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export`);
+  url.searchParams.set('format', 'csv');
   url.searchParams.set('gid', EVENTS_TAB_GID);
-  url.searchParams.set('single', 'true');
-  url.searchParams.set('output', 'csv');
 
   const response = await fetchWithTimeout(url.toString(), {
     headers: { Accept: 'text/csv' }
@@ -140,7 +138,7 @@ async function fetchRows() {
   const csvText = await response.text();
 
   if (/^\s*<(?:!doctype|html)/i.test(csvText)) {
-    throw new Error('Google Sheets returned HTML instead of CSV. Republish the sheet and enable “Anyone with the link” viewing.');
+    throw new Error('Google Sheets returned HTML instead of CSV. Confirm the sheet is accessible and the spreadsheet ID is correct.');
   }
 
   const rows = parse(csvText, {
@@ -151,7 +149,7 @@ async function fetchRows() {
     trim: false
   });
 
-  if (!rows.length) throw new Error('The published Google Sheet returned no rows.');
+  if (!rows.length) throw new Error('The Google Sheet returned no rows.');
 
   const header = findHeader(rows);
   return {
@@ -197,6 +195,7 @@ async function buildPayload() {
     geocodeFailures: 0,
     headerRowIndex: header.index,
     headerScore: header.score,
+    sheetId: GOOGLE_SHEET_ID,
     sheetGid: EVENTS_TAB_GID
   };
 
@@ -286,7 +285,7 @@ module.exports = async (req, res) => {
     cachedAt = Date.now();
     return res.status(200).json(payload);
   } catch (error) {
-    console.error('Error loading published events:', error);
+    console.error('Error loading Google Sheet events:', error);
 
     if (cachedPayload) {
       return res.status(200).json({
@@ -298,8 +297,8 @@ module.exports = async (req, res) => {
 
     return res.status(502).json({
       error: error.message,
-      source: `published gid ${EVENTS_TAB_GID}`,
-      hint: 'Confirm the tab is published and accessible without signing in.'
+      source: `spreadsheet ${GOOGLE_SHEET_ID}, gid ${EVENTS_TAB_GID}`,
+      hint: 'Confirm the spreadsheet is accessible and the tab GID is correct.'
     });
   }
 };
