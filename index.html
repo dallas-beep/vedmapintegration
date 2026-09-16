@@ -5,11 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Events Map</title>
   
-  <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
 
@@ -23,14 +21,43 @@
       height: 100%;
       width: 100%;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
     }
     #map {
       height: 100%;
       width: 100%;
+      z-index: 1;
     }
+
+    /* Floating Search Bar */
+    .search-container {
+      position: absolute;
+      top: 16px;
+      left: 60px;
+      z-index: 1000;
+      width: calc(100% - 80px);
+      max-width: 380px;
+    }
+    .search-input {
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      outline: none;
+      background: #ffffff;
+    }
+    .search-input:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+
+    /* Popup Styling */
     .event-popup {
       font-size: 14px;
       line-height: 1.4;
+      max-width: 280px;
     }
     .popup-title {
       font-size: 16px;
@@ -39,13 +66,13 @@
       margin-bottom: 6px;
     }
     .popup-meta {
-      color: #4b5563;
+      color: #374151;
       margin-bottom: 4px;
     }
     .popup-btn {
       display: inline-block;
       margin-top: 8px;
-      padding: 6px 12px;
+      padding: 6px 14px;
       background-color: #2563eb;
       color: #ffffff !important;
       text-decoration: none;
@@ -60,65 +87,84 @@
 </head>
 <body>
 
+  <div class="search-container">
+    <input 
+      type="text" 
+      id="searchBox" 
+      class="search-input" 
+      placeholder="Search events, organizations, cities..." 
+    />
+  </div>
+
   <div id="map"></div>
 
-  <!-- Leaflet JS -->
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
 
   <script>
-    // Initialize map centered roughly on the US
     const map = L.map('map').setView([39.8283, -98.5795], 4);
 
-    // Add OpenStreetMap tile layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    const bounds = L.latLngBounds();
+    let allEvents = [];
+    let markerGroup = L.featureGroup().addTo(map);
 
-    // Fetch events from serverless endpoint
-    fetch('/api/get-mobilize-events')
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-        return res.json();
-      })
-      .then((response) => {
-        const events = response.data || [];
+    function renderMarkers(eventsList) {
+      markerGroup.clearLayers();
 
-        if (events.length === 0) {
-          console.warn('No valid events with coordinates found.');
-          return;
-        }
+      if (eventsList.length === 0) return;
 
-        events.forEach((item) => {
-          const marker = L.marker([item.lat, item.lon]).addTo(map);
-          bounds.extend([item.lat, item.lon]);
+      eventsList.forEach((item) => {
+        const marker = L.marker([item.lat, item.lon]);
 
-          // Build popup HTML using event name as title
-          const popupContent = `
-            <div class="event-popup">
-              <div class="popup-title">${item.title}</div>
-              ${item.hostOrganization ? `<div class="popup-meta"><strong>Host:</strong> ${item.hostOrganization}</div>` : ''}
-              ${item.date || item.time ? `<div class="popup-meta"><strong>When:</strong> ${item.date} ${item.time}</div>` : ''}
-              ${item.address ? `<div class="popup-meta"><strong>Where:</strong> ${item.address}</div>` : ''}
-              ${item.browserUrl ? `<a class="popup-btn" href="${item.browserUrl}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}
-            </div>
-          `;
+        const popupContent = `
+          <div class="event-popup">
+            <div class="popup-title">${item.title}</div>
+            ${item.hostOrganization ? `<div class="popup-meta"><strong>Host:</strong> ${item.hostOrganization}</div>` : ''}
+            ${item.date || item.time ? `<div class="popup-meta"><strong>When:</strong> ${item.date} ${item.time}</div>` : ''}
+            ${item.address ? `<div class="popup-meta"><strong>Where:</strong> ${item.address}</div>` : ''}
+            ${item.browserUrl ? `<a class="popup-btn" href="${item.browserUrl}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}
+          </div>
+        `;
 
-          marker.bindPopup(popupContent);
-        });
-
-        // Fit map view to display all markers
-        map.fitBounds(bounds, { padding: [40, 40] });
-      })
-      .catch((err) => {
-        console.error('Failed to load events:', err);
+        marker.bindPopup(popupContent);
+        markerGroup.addLayer(marker);
       });
+
+      map.fitBounds(markerGroup.getBounds(), { padding: [50, 50], maxZoom: 14 });
+    }
+
+    // Live search input filtering
+    document.getElementById('searchBox').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!q) {
+        renderMarkers(allEvents);
+        return;
+      }
+
+      const filtered = allEvents.filter((item) => {
+        return (
+          (item.title && item.title.toLowerCase().includes(q)) ||
+          (item.hostOrganization && item.hostOrganization.toLowerCase().includes(q)) ||
+          (item.address && item.address.toLowerCase().includes(q))
+        );
+      });
+
+      renderMarkers(filtered);
+    });
+
+    fetch('/api/get-mobilize-events')
+      .then((res) => res.json())
+      .then((response) => {
+        allEvents = response.data || [];
+        renderMarkers(allEvents);
+      })
+      .catch((err) => console.error('Failed to load events:', err));
   </script>
 </body>
 </html>
