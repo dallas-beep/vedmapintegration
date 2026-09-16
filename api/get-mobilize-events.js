@@ -1,164 +1,54 @@
 const fetch = require('node-fetch');
 const { parse } = require('csv-parse/sync');
 
-// This is the actual workbook and the actual events tab supplied for this app.
-const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
+const PUBLISHED_SHEET_ID = '2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA';
 const EVENTS_TAB_GID = '1581051441';
 
 const COLUMN_ALIASES = {
-  hostOrganization: ['host organization', 'hostorganization', 'organization', 'host org'],
-  date: ['date', 'event date'],
-  title: ['title', 'event title', 'event name', 'name'],
-  time: ['time', 'event time', 'start time'],
-  address: ['address', 'location', 'event address', 'venue address'],
-  public: ['public', 'is public', 'publish', 'published', 'show on map', 'visible'],
-  registrationLink: ['registration link', 'registrationlink', 'registration url', 'rsvp', 'rsvp link', 'url', 'link']
+  title: ['event/activity name', 'event activity name', 'event name', 'event title', 'title'],
+  organization: ['what organization do you represent', 'host organization', 'organization', 'host org'],
+  cityState: ['city and state', 'city/state', 'city state'],
+  zip: ['zipcode', 'zip code', 'zip'],
+  social: ['what are your social media handles', 'social media handles', 'social handles'],
+  octoberEvent: ['are you hosting a vote early day on october 24 2026', 'vote early day on october 24 2026', 'october 24 2026'],
+  startEnd: ['start time / end time', 'start time end time', 'start/end time', 'time'],
+  address: ['location of the event', 'event location', 'address', 'location'],
+  public: ['is this event open to the public', 'open to the public', 'public'],
+  registrationLink: ['event registration link', 'registration link', 'registration url', 'rsvp link', 'rsvp'],
+  mobilize: ['how many people will you mobilize to vote early', 'people will you mobilize', 'mobilize'],
+  description: ['event description', 'briefly describe what you are planning', 'description']
 };
 
-// Compatibility fallback for the original spreadsheet layout: C, J, K, L, M, N, O.
-const FALLBACK_COLUMNS = {
-  hostOrganization: 2,
-  date: 9,
-  title: 10,
-  time: 11,
-  address: 12,
-  public: 13,
-  registrationLink: 14
-};
+const normalize = value => String(value == null ? '' : value).replace(/\ufeff/g, '').trim().toLowerCase().replace(/[?_*()[\]{}:#/\\-]+/g, ' ').replace(/\s+/g, ' ');
+const matches = (header, aliases) => aliases.some(alias => { const candidate = normalize(alias); return header === candidate || header.includes(candidate) || candidate.includes(header); });
+const findHeader = rows => { let best = { index: -1, score: 0 }; rows.slice(0, 20).forEach((row, index) => { const score = Object.values(COLUMN_ALIASES).filter(aliases => row.some(cell => matches(normalize(cell), aliases))).length; if (score > best.score) best = { index, score }; }); return best; };
+const findColumns = headerRow => Object.fromEntries(Object.entries(COLUMN_ALIASES).map(([field, aliases]) => [field, headerRow.findIndex(cell => matches(normalize(cell), aliases))]));
+const valueAt = (row, columns, field) => { const index = columns[field]; return index < 0 || row[index] == null ? '' : String(row[index]).trim(); };
+const isNo = value => ['no', 'n', 'false', '0'].includes(normalize(value));
+const isYes = value => ['yes', 'y', 'true', '1', 'public', 'open'].includes(normalize(value));
 
-const normalize = value => String(value == null ? '' : value)
-  .replace(/\ufeff/g, '')
-  .trim()
-  .toLowerCase()
-  .replace(/[?_*()[\]{}:#/\\-]+/g, ' ')
-  .replace(/\s+/g, ' ');
-
-const matchesHeader = (header, aliases) => aliases.some(alias => {
-  const candidate = normalize(alias);
-  return header === candidate || header.includes(candidate) || candidate.includes(header);
-});
-
-const findHeader = rows => {
-  let best = { index: -1, score: 0 };
-  rows.slice(0, 15).forEach((row, index) => {
-    const headers = row.map(normalize);
-    const score = Object.values(COLUMN_ALIASES)
-      .filter(aliases => headers.some(header => matchesHeader(header, aliases))).length;
-    if (score > best.score) best = { index, score };
-  });
-  return best;
-};
-
-const findColumns = headerRow => Object.fromEntries(
-  Object.entries(COLUMN_ALIASES).map(([field, aliases]) => {
-    const index = headerRow.findIndex(header => matchesHeader(normalize(header), aliases));
-    return [field, index === -1 ? FALLBACK_COLUMNS[field] : index];
-  })
-);
-
-const valueAt = (row, columns, field) => {
-  const value = row[columns[field]];
-  return value == null ? '' : String(value).trim();
-};
-
-const isPublished = value => ['yes', 'y', 'true', '1', 'published', 'public'].includes(normalize(value));
-
-async function fetchEventsTab() {
-  // Use the normal workbook export because the provided URL is a /d/ workbook
-  // URL, not a /d/e/ published URL. The gid selects properspreadsheet exactly.
-  const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${EVENTS_TAB_GID}`;
-  const response = await fetch(csvUrl, { headers: { Accept: 'text/csv' } });
-  const csvText = await response.text();
-
-  if (!response.ok) {
-    throw new Error(`Google Sheets export failed (${response.status}) for gid ${EVENTS_TAB_GID}`);
-  }
-  if (/^\s*<(?:!doctype|html)/i.test(csvText)) {
-    throw new Error('Google Sheets returned an HTML/login page instead of CSV. Make the workbook readable by the deployed app or publish the properspreadsheet tab.');
-  }
-
-  const rows = parse(csvText, {
-    columns: false,
-    skip_empty_lines: true,
-    bom: true,
-    relax_column_count: true,
-    trim: false
-  });
-  const header = findHeader(rows);
-  if (!rows.length || header.index < 0 || header.score < 2) {
-    throw new Error(`No event columns found in spreadsheet tab gid ${EVENTS_TAB_GID}. Verify the tab and its header row.`);
-  }
+async function fetchPublishedTab() {
+  const url = new URL(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`);
+  url.searchParams.set('gid', EVENTS_TAB_GID); url.searchParams.set('single', 'true'); url.searchParams.set('output', 'csv');
+  const response = await fetch(url.toString(), { headers: { Accept: 'text/csv' } }); const csvText = await response.text();
+  if (!response.ok) throw new Error(`Published spreadsheet returned ${response.status}`);
+  if (/^\s*<(?:!doctype|html)/i.test(csvText)) throw new Error('The published spreadsheet returned HTML instead of CSV. Publish the tab and enable public viewing.');
+  const rows = parse(csvText, { columns: false, skip_empty_lines: true, bom: true, relax_column_count: true }); const header = findHeader(rows);
+  if (header.index < 0 || header.score < 3) throw new Error(`No usable event header row found in published tab gid ${EVENTS_TAB_GID}`);
   return { rows, header, columns: findColumns(rows[header.index]) };
 }
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Content-Type', 'application/json');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-
+  res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS'); res.setHeader('Content-Type', 'application/json');
+  if (req.method === 'OPTIONS') return res.status(200).end(); if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { rows, header, columns } = await fetchEventsTab();
-    const headerRow = rows[header.index];
-    const hasPublicColumn = headerRow.some(cell => matchesHeader(normalize(cell), COLUMN_ALIASES.public));
-    const events = [];
-    let skippedRows = 0;
-
+    const { rows, header, columns } = await fetchPublishedTab(); const hasPublicColumn = columns.public >= 0; const events = []; let skippedRows = 0;
     for (const row of rows.slice(header.index + 1)) {
-      if (hasPublicColumn && !isPublished(valueAt(row, columns, 'public'))) {
-        skippedRows += 1;
-        continue;
-      }
-
-      const eventName = valueAt(row, columns, 'title');
-      const hostOrg = valueAt(row, columns, 'hostOrganization');
-      const dateInfo = valueAt(row, columns, 'date');
-      const timeInfo = valueAt(row, columns, 'time');
-      const locationText = valueAt(row, columns, 'address');
-      const registrationLink = valueAt(row, columns, 'registrationLink');
-
-      if (!eventName || !locationText) {
-        skippedRows += 1;
-        continue;
-      }
-
-      try {
-        const geoResponse = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`,
-          { headers: { 'User-Agent': 'vedmapintegration/1.0' } }
-        );
-        const geoData = await geoResponse.json();
-        if (!geoData || !geoData.length) {
-          skippedRows += 1;
-          continue;
-        }
-
-        events.push({
-          id: eventName,
-          title: eventName,
-          hostOrganization: hostOrg,
-          date: dateInfo,
-          time: timeInfo,
-          description: `${hostOrg} - ${dateInfo} ${timeInfo}`.trim(),
-          address: locationText,
-          city: '',
-          state: '',
-          zip: '',
-          lat: parseFloat(geoData[0].lat),
-          lon: parseFloat(geoData[0].lon),
-          browserUrl: registrationLink
-        });
-      } catch (geoError) {
-        skippedRows += 1;
-        console.error(`Geocoding error for ${locationText}:`, geoError);
-      }
+      const publicValue = valueAt(row, columns, 'public'); if (hasPublicColumn && isNo(publicValue)) { skippedRows++; continue; } if (hasPublicColumn && publicValue && !isYes(publicValue)) { skippedRows++; continue; }
+      const title = valueAt(row, columns, 'title'); const organization = valueAt(row, columns, 'organization'); const cityState = valueAt(row, columns, 'cityState'); const zip = valueAt(row, columns, 'zip'); const social = valueAt(row, columns, 'social'); const octoberEvent = valueAt(row, columns, 'octoberEvent'); const startEnd = valueAt(row, columns, 'startEnd'); const address = valueAt(row, columns, 'address'); const registrationLink = valueAt(row, columns, 'registrationLink'); const mobilize = valueAt(row, columns, 'mobilize'); const description = valueAt(row, columns, 'description');
+      if (!title || !address) { skippedRows++; continue; }
+      try { const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`, { headers: { 'User-Agent': 'vedmapintegration/1.0' } }); const geoData = await geoResponse.json(); if (!geoData || !geoData.length) { skippedRows++; continue; } const date = octoberEvent && !isNo(octoberEvent) ? 'October 24, 2026' : 'TBD'; events.push({ id: `${title}-${address}`, title, hostOrganization: organization, date, time: startEnd, address, city: cityState, state: '', zip, social, octoberEvent, startEnd, public: publicValue, mobilize, description, browserUrl: registrationLink, lat: Number(geoData[0].lat), lon: Number(geoData[0].lon) }); } catch (error) { skippedRows++; console.error(`Geocoding error for ${address}:`, error); }
     }
-
     res.status(200).json({ count: events.length, data: events, skippedRows });
-  } catch (error) {
-    console.error('Error loading Google Sheet events:', error);
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { console.error('Error loading published events:', error); res.status(500).json({ error: error.message }); }
 };
