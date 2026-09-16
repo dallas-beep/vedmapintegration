@@ -1,14 +1,10 @@
 const fetch = require('node-fetch');
 const { parse } = require('csv-parse/sync');
 
-// This must be the published spreadsheet URL and the gid for the events tab
-// (not the gid for the workbook's first/default tab).
 const PUBLISHED_SHEET_ID = '2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA';
-const GID = '619059883';
+const EVENTS_TAB_NAME = 'properspreadsheet';
+const EVENTS_TAB_GID = '619059883';
 
-// The published CSV contains the actual header labels, so resolve columns by
-// header name first. The numeric positions are only a compatibility fallback
-// for sheets whose header row has been removed or renamed completely.
 const COLUMN_ALIASES = {
   hostOrganization: ['host organization', 'hostorganization', 'organization', 'host org'],
   date: ['date', 'event date'],
@@ -20,84 +16,107 @@ const COLUMN_ALIASES = {
 };
 
 const FALLBACK_COLUMNS = {
-  hostOrganization: 2, // C
-  date: 9, // J
-  title: 10, // K
-  time: 11, // L
-  address: 12, // M
-  public: 13, // N
-  registrationLink: 14 // O
+  hostOrganization: 2,
+  date: 9,
+  title: 10,
+  time: 11,
+  address: 12,
+  public: 13,
+  registrationLink: 14
 };
 
-const normalizeHeader = value => String(value == null ? '' : value)
+const normalize = value => String(value == null ? '' : value)
   .replace(/\ufeff/g, '')
   .trim()
   .toLowerCase()
   .replace(/[?_*()[\]{}:#/\\-]+/g, ' ')
   .replace(/\s+/g, ' ');
 
-const findColumns = headerRow => {
-  const normalizedHeaders = headerRow.map(normalizeHeader);
-  return Object.fromEntries(Object.entries(COLUMN_ALIASES).map(([field, aliases]) => {
-    const aliasSet = new Set(aliases.map(normalizeHeader));
-    const index = normalizedHeaders.findIndex(header => aliasSet.has(header));
-    return [field, index === -1 ? FALLBACK_COLUMNS[field] : index];
-  }));
+const isHeaderMatch = (header, aliases) => aliases.some(alias => {
+  const candidate = normalize(alias);
+  return header === candidate || header.includes(candidate) || candidate.includes(header);
+});
+
+// Published Google Sheets CSVs sometimes include a title/preamble before the
+// real header. Find the row that actually contains event fields instead of
+// assuming row zero is always the header.
+const findHeader = rows => {
+  let best = { index: 0, score: 0 };
+  rows.slice(0, 10).forEach((row, index) => {
+    const headers = row.map(normalize);
+    const score = Object.values(COLUMN_ALIASES)
+      .filter(aliases => headers.some(header => isHeaderMatch(header, aliases))).length;
+    if (score > best.score) best = { index, score };
+  });
+  return best;
 };
+
+const findColumns = headerRow => Object.fromEntries(
+  Object.entries(COLUMN_ALIASES).map(([field, aliases]) => {
+    const index = headerRow.findIndex(header => isHeaderMatch(normalize(header), aliases));
+    return [field, index === -1 ? FALLBACK_COLUMNS[field] : index];
+  })
+);
 
 const valueAt = (row, columns, field) => {
   const value = row[columns[field]];
   return value == null ? '' : String(value).trim();
 };
 
-const isPublished = value => ['yes', 'y', 'true', '1', 'published', 'public'].includes(
-  normalizeHeader(value)
-);
+const isPublished = value => ['yes', 'y', 'true', '1', 'published', 'public'].includes(normalize(value));
+
+async function fetchTab({ useName }) {
+  const csvUrl = new URL(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`);
+  csvUrl.searchParams.set('single', 'true');
+  csvUrl.searchParams.set('output', 'csv');
+  if (useName) csvUrl.searchParams.set('sheet', EVENTS_TAB_NAME);
+  else csvUrl.searchParams.set('gid', EVENTS_TAB_GID);
+
+  const response = await fetch(csvUrl.toString());
+  const csvText = await response.text();
+  if (!response.ok) throw new Error(`Google Sheets returned ${response.status}`);
+
+  const rows = parse(csvText, {
+    columns: false,
+    skip_empty_lines: true,
+    bom: true,
+    relax_column_count: true,
+    trim: false
+  });
+  const header = findHeader(rows);
+  return { rows, header, columns: findColumns(rows[header.index] || []) };
+}
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  if (req.method !== 'GET') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const csvUrl = new URL(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`);
-    csvUrl.searchParams.set('gid', GID);
-    csvUrl.searchParams.set('single', 'true');
-    csvUrl.searchParams.set('output', 'csv');
-
-    const response = await fetch(csvUrl.toString());
-    if (!response.ok) {
-      throw new Error(`Failed to fetch the events spreadsheet tab (gid ${GID}): ${response.status}`);
+    // Prefer the named properspreadsheet tab. Fall back to its configured gid
+    // because some published workbooks ignore the sheet query parameter.
+    let tab;
+    try {
+      tab = await fetchTab({ useName: true });
+      if (tab.header.score < 2) tab = await fetchTab({ useName: false });
+    } catch (nameError) {
+      tab = await fetchTab({ useName: false });
     }
 
-    const csvText = await response.text();
-    const rows = parse(csvText, {
-      columns: false,
-      skip_empty_lines: true,
-      bom: true,
-      relax_column_count: true,
-      trim: false
-    });
-
-    if (rows.length < 2) {
-      throw new Error(`The events spreadsheet tab (gid ${GID}) returned no data rows`);
+    if (!tab.rows.length || tab.header.score < 2) {
+      throw new Error(`Could not find event columns in the ${EVENTS_TAB_NAME} tab. Check the published tab name and gid.`);
     }
 
-    const columns = findColumns(rows[0]);
+    const { rows, header, columns } = tab;
+    const hasPublicColumn = header.index >= 0 && rows[header.index].some(cell => isHeaderMatch(normalize(cell), COLUMN_ALIASES.public));
     const events = [];
 
-    for (const row of rows.slice(1)) {
-      if (!isPublished(valueAt(row, columns, 'public'))) continue;
+    for (const row of rows.slice(header.index + 1)) {
+      // If the tab has no visibility column, do not discard every event.
+      if (hasPublicColumn && !isPublished(valueAt(row, columns, 'public'))) continue;
 
       const eventName = valueAt(row, columns, 'title');
       const hostOrg = valueAt(row, columns, 'hostOrganization');
@@ -105,22 +124,14 @@ module.exports = async (req, res) => {
       const timeInfo = valueAt(row, columns, 'time');
       const locationText = valueAt(row, columns, 'address');
       const registrationLink = valueAt(row, columns, 'registrationLink');
-
       if (!eventName || !locationText) continue;
 
       try {
-        const geoResponse = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`,
-          { headers: { 'User-Agent': 'vedmapintegration/1.0' } }
-        );
+        const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`, {
+          headers: { 'User-Agent': 'vedmapintegration/1.0' }
+        });
         const geoData = await geoResponse.json();
-
-        if (!geoData || geoData.length === 0) {
-          console.warn(`Could not geocode: ${locationText}`);
-          continue;
-        }
-
-        const geo = geoData[0];
+        if (!geoData || !geoData.length) continue;
         events.push({
           id: eventName,
           title: eventName,
@@ -132,8 +143,8 @@ module.exports = async (req, res) => {
           city: '',
           state: '',
           zip: '',
-          lat: parseFloat(geo.lat),
-          lon: parseFloat(geo.lon),
+          lat: parseFloat(geoData[0].lat),
+          lon: parseFloat(geoData[0].lon),
           browserUrl: registrationLink
         });
       } catch (geoError) {
