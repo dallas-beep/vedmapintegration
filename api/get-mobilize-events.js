@@ -11,15 +11,15 @@ module.exports = async (req, res) => {
     return;
   }
 
-  try {
-    // Google Sheet CSV export URL
-    const SHEET_ID = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA/pubhtml';
-    const GID = '619059883&amp';
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
-
-    const response = await fetch(csvUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch sheet: ${response.status}`);
+  <iframe src="https://docs.google.com/spreadsheets/d/e/2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA/pubhtml?gid=619059883&single=true&widget=true&headers=false"></iframe>
+try {
+// Google Sheet CSV export URL
+const SHEET_ID = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA/pubhtml';
+const GID = '619059883&amp';
+const csvUrl = https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID};
+  const response = await fetch(csvUrl);
+if (!response.ok) {
+  throw new Error(`Failed to fetch sheet: ${response.status}`);
     }
 
     const csvText = await response.text();
