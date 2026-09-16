@@ -12,73 +12,67 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
-    const GID = '619059883'; // Tab 2
+    const SHEET_ID = '1DJgMiQT6oMxBvdKFK6bha2EEFkJrNrXYU8U0dEMDhhs';
+    const GID = '0';
     const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
     const response = await fetch(csvUrl);
     if (!response.ok) {
-      throw new Error(`Failed to fetch sheet: ${response.status}`);
+      throw new Error(`Sheet fetch failed: HTTP ${response.status}`);
     }
 
     const csvText = await response.text();
-    const records = parse(csvText, {
-      columns: true,
+    const rows = parse(csvText, {
+      columns: false,
       skip_empty_lines: true
     });
 
+    // Skip header row
+    const dataRows = rows.slice(1);
     const events = [];
 
-    for (const record of records) {
-      const colO = record.O ? record.O.trim().toLowerCase() : '';
-      const colU = record.U ? record.U.trim().toLowerCase() : '';
+    for (const row of dataRows) {
+      // Numerical indices (0-based):
+      // C=2, J=9, K=10, L=11, M=12, O=14, U=20
+      const colO = (row[14] || '').trim().toLowerCase();
+      const colU = (row[20] || '').trim().toLowerCase();
 
       if (colO === 'no' && colU === 'no') {
         continue;
       }
 
-      const eventName = record.K ? record.K.trim() : '';
-      const hostOrg = record.C ? record.C.trim() : '';
-      const dateInfo = record.J ? record.J.trim() : '';
-      const timeInfo = record.L ? record.L.trim() : '';
-      const locationText = record.M ? record.M.trim() : '';
+      const hostOrg = (row[2] || '').trim();
+      const dateInfo = (row[9] || '').trim();
+      const eventName = (row[10] || '').trim();
+      const timeInfo = (row[11] || '').trim();
+      const locationText = (row[12] || '').trim();
 
-      if (!eventName || !locationText) {
+      // ADJUST THESE INDEXES to match your new Latitude and Longitude columns:
+      // Column AA = index 26, Column AB = index 27
+      const lat = parseFloat(row[26]);
+      const lon = parseFloat(row[27]);
+
+      if (!eventName || isNaN(lat) || isNaN(lon)) {
         continue;
       }
 
-      try {
-        const geoResponse = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`
-        );
-        const geoData = await geoResponse.json();
+      const showRegLink = (colO === 'yes' && colU === 'yes') ? (row[14] || '').trim() : '';
 
-        if (!geoData || geoData.length === 0) {
-          console.warn(`Could not geocode: ${locationText}`);
-          continue;
-        }
-
-        const geo = geoData[0];
-        const showRegLink = colO === 'yes' && colU === 'yes' ? (record.O ? record.O.trim() : '') : '';
-
-        events.push({
-          id: eventName,
-          title: eventName,
-          hostOrganization: hostOrg,
-          date: dateInfo,
-          time: timeInfo,
-          description: `${hostOrg} - ${dateInfo} ${timeInfo}`,
-          address: locationText,
-          city: '',
-          state: '',
-          zip: '',
-          lat: parseFloat(geo.lat),
-          lon: parseFloat(geo.lon),
-          browserUrl: showRegLink
-        });
-      } catch (geoError) {
-        console.error(`Geocoding error for ${locationText}:`, geoError);
-      }
+      events.push({
+        id: eventName,
+        title: eventName,
+        hostOrganization: hostOrg,
+        date: dateInfo,
+        time: timeInfo,
+        description: `${hostOrg} - ${dateInfo} ${timeInfo}`,
+        address: locationText,
+        city: '',
+        state: '',
+        zip: '',
+        lat: lat,
+        lon: lon,
+        browserUrl: showRegLink
+      });
     }
 
     res.status(200).json({
@@ -87,7 +81,7 @@ module.exports = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('API Error:', error);
     res.status(500).json({ error: error.message });
   }
 };
