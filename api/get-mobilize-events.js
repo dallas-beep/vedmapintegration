@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
 
   try {
     // Google Sheet CSV export URL
-    const SHEET_ID = '2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA';
+    const SHEET_ID = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA/pubhtml';
     const GID = '619059883&amp';
     const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
