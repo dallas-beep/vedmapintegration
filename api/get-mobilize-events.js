@@ -4,6 +4,26 @@ const { parse } = require('csv-parse/sync');
 const PUBLISHED_SHEET_ID = '2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA';
 const GID = '619059883';
 
+// Google Sheets CSV exports use the first row as the column headers. The
+// previous implementation parsed with `columns: true`, then looked up values
+// using spreadsheet letters (record.K, record.M, etc.). That only works when
+// the sheet's header text literally is "K", "M", and so on. Keep the mapping
+// explicit, but read the exported rows by their zero-based column positions.
+const COLUMN_MAPPING = {
+  hostOrganization: 2, // C
+  date: 9,              // J
+  title: 10,            // K
+  time: 11,             // L
+  address: 12,          // M
+  public: 13,           // N
+  registrationLink: 14  // O
+};
+
+const valueAt = (row, column) => {
+  const value = row[COLUMN_MAPPING[column]];
+  return value == null ? '' : String(value).trim();
+};
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -20,9 +40,6 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // The supplied URL is a published-sheet URL, so use /pub with output=csv.
-    // /export only works with the spreadsheet's private document ID, not its
-    // published 2PACX ID.
     const csvUrl = new URL(
       `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`
     );
@@ -36,27 +53,30 @@ module.exports = async (req, res) => {
     }
 
     const csvText = await response.text();
-    const records = parse(csvText, {
-      columns: true,
+    const rows = parse(csvText, {
+      columns: false,
       skip_empty_lines: true,
       bom: true,
-      relax_column_count: true
+      relax_column_count: true,
+      trim: false
     });
 
+    // Row zero is the sheet header. Using rows instead of header names means
+    // the mapping remains correct even when headers contain spaces or labels.
     const events = [];
 
-    for (const record of records) {
-      // Filter: only show rows where column N (public) is "Yes".
-      if (record.N && record.N.trim().toLowerCase() !== 'yes') {
+    for (const row of rows.slice(1)) {
+      const isPublic = valueAt(row, 'public').toLowerCase();
+      if (isPublic !== 'yes') {
         continue;
       }
 
-      const eventName = record.K ? record.K.trim() : '';
-      const hostOrg = record.C ? record.C.trim() : '';
-      const dateInfo = record.J ? record.J.trim() : '';
-      const timeInfo = record.L ? record.L.trim() : '';
-      const locationText = record.M ? record.M.trim() : '';
-      const registrationLink = record.O ? record.O.trim() : '';
+      const eventName = valueAt(row, 'title');
+      const hostOrg = valueAt(row, 'hostOrganization');
+      const dateInfo = valueAt(row, 'date');
+      const timeInfo = valueAt(row, 'time');
+      const locationText = valueAt(row, 'address');
+      const registrationLink = valueAt(row, 'registrationLink');
 
       if (!eventName || !locationText) {
         continue;
@@ -81,7 +101,7 @@ module.exports = async (req, res) => {
           hostOrganization: hostOrg,
           date: dateInfo,
           time: timeInfo,
-          description: `${hostOrg} - ${dateInfo} ${timeInfo}`,
+          description: `${hostOrg} - ${dateInfo} ${timeInfo}`.trim(),
           address: locationText,
           city: '',
           state: '',
