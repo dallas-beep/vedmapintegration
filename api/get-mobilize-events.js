@@ -4,7 +4,7 @@ const { parse } = require('csv-parse/sync');
 const PUBLISHED_SHEET_ID = '2PACX-1vSl-yUZCi_Rv_aMe5tYTRixQ1dUyd5G2QgfrfeGsgPwjIlXUpiUJ-9IG5ja1RYRsBzfePgSJ3VxvwLA';
 const EVENTS_TAB_GID = '1581051441';
 
-const COLUMN_ALIASES = {
+const FIELD_ALIASES = {
   title: ['event/activity name', 'event activity name', 'event name', 'event title', 'title'],
   organization: ['what organization do you represent', 'host organization', 'organization', 'host org'],
   cityState: ['city and state', 'city/state', 'city state'],
@@ -20,57 +20,73 @@ const COLUMN_ALIASES = {
 };
 
 const normalize = value => String(value == null ? '' : value)
-  .replace(/\ufeff/g, '').trim().toLowerCase()
-  .replace(/[?_*()[\]{}:#/\\-]+/g, ' ').replace(/\s+/g, ' ');
+  .replace(/\ufeff/g, '')
+  .trim()
+  .toLowerCase()
+  .replace(/[?_*()[\]{}:#/\\-]+/g, ' ')
+  .replace(/\s+/g, ' ');
 
-const matches = (header, aliases) => aliases.some(alias => {
-  const candidate = normalize(alias);
-  return header === candidate || header.includes(candidate) || candidate.includes(header);
-});
+const cellMatchesAlias = (cellValue, aliases) => {
+  const normalizedCell = normalize(cellValue);
+  return aliases.some(alias => {
+    const normalizedAlias = normalize(alias);
+    return normalizedCell === normalizedAlias || normalizedCell.includes(normalizedAlias) || normalizedAlias.includes(normalizedCell);
+  });
+};
 
-const findHeader = rows => {
+const findHeaderRow = rows => {
   let best = { index: -1, score: 0 };
   rows.slice(0, 20).forEach((row, index) => {
-    const score = Object.values(COLUMN_ALIASES).filter(aliases =>
-      row.some(cell => matches(normalize(cell), aliases))
-    ).length;
-    if (score > best.score) best = { index, score };
+    const score = Object.values(FIELD_ALIASES).filter(aliases => row.some(cell => cellMatchesAlias(cell, aliases))).length;
+    if (score > best.score) {
+      best = { index, score };
+    }
   });
   return best;
 };
 
-const findColumns = headerRow => Object.fromEntries(
-  Object.entries(COLUMN_ALIASES).map(([field, aliases]) => [
-    field,
-    headerRow.findIndex(cell => matches(normalize(cell), aliases))
-  ])
+const findColumns = row => Object.fromEntries(
+  Object.entries(FIELD_ALIASES).map(([field, aliases]) => [field, row.findIndex(cell => cellMatchesAlias(cell, aliases))])
 );
 
 const valueAt = (row, columns, field) => {
   const index = columns[field];
-  return index < 0 || row[index] == null ? '' : String(row[index]).trim();
+  return index == null || index < 0 || row[index] == null ? '' : String(row[index]).trim();
 };
 
-// Only an explicit negative answer excludes a row. This is important because
-// form exports often contain values such as "Yes - open to everyone".
 const isExplicitNo = value => /^(no|n|false|0)(?:\b|\s|[-:])/i.test(String(value || '').trim());
 
 async function fetchPublishedTab() {
-  const url = new URL(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`);
-  url.searchParams.set('gid', EVENTS_TAB_GID);
-  url.searchParams.set('single', 'true');
-  url.searchParams.set('output', 'csv');
-  const response = await fetch(url.toString(), { headers: { Accept: 'text/csv' } });
+  const csvUrl = new URL(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub`);
+  csvUrl.searchParams.set('gid', EVENTS_TAB_GID);
+  csvUrl.searchParams.set('single', 'true');
+  csvUrl.searchParams.set('output', 'csv');
+
+  const response = await fetch(csvUrl.toString(), { headers: { Accept: 'text/csv' } });
   const csvText = await response.text();
-  if (!response.ok) throw new Error(`Published spreadsheet returned ${response.status}`);
+
+  if (!response.ok) {
+    throw new Error(`Published spreadsheet returned HTTP ${response.status}`);
+  }
+
   if (/^\s*<(?:!doctype|html)/i.test(csvText)) {
-    throw new Error('The published spreadsheet returned HTML instead of CSV. Publish the tab and enable public viewing.');
+    throw new Error('Published sheet returned HTML instead of CSV; republish the tab and allow public viewing.');
   }
-  const rows = parse(csvText, { columns: false, skip_empty_lines: true, bom: true, relax_column_count: true });
-  const header = findHeader(rows);
+
+  const rows = parse(csvText, {
+    columns: false,
+    skip_empty_lines: true,
+    bom: true,
+    relax_column_count: true,
+    trim: false
+  });
+
+  const header = findHeaderRow(rows);
   if (header.index < 0 || header.score < 3) {
-    throw new Error(`No usable event header row found in published tab gid ${EVENTS_TAB_GID}`);
+    const preview = rows[0] ? rows[0].slice(0, 8).join(' | ') : 'none';
+    throw new Error(`No event header row found in published tab ${EVENTS_TAB_GID}. Header preview: ${preview}`);
   }
+
   return { rows, header, columns: findColumns(rows[header.index]) };
 }
 
@@ -78,22 +94,41 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
 
   try {
     const { rows, header, columns } = await fetchPublishedTab();
     const events = [];
-    let skippedRows = 0;
-    let publicRows = 0;
+    const diagnostics = {
+      rowsScanned: rows.length - header.index - 1,
+      publicRows: 0,
+      skippedRows: 0,
+      geocodeFailures: 0,
+      headerRowIndex: header.index,
+      headerScore: header.score
+    };
 
     for (const row of rows.slice(header.index + 1)) {
-      const publicValue = valueAt(row, columns, 'public');
-      if (columns.public >= 0 && isExplicitNo(publicValue)) {
-        skippedRows += 1;
+      if (Object.values(row).every(value => !String(value || '').trim())) {
         continue;
       }
-      publicRows += 1;
+
+      const publicValue = valueAt(row, columns, 'public');
+      if (columns.public >= 0 && isExplicitNo(publicValue)) {
+        diagnostics.skippedRows += 1;
+        continue;
+      }
+
+      diagnostics.publicRows += 1;
 
       const title = valueAt(row, columns, 'title');
       const organization = valueAt(row, columns, 'organization');
@@ -107,27 +142,35 @@ module.exports = async (req, res) => {
       const mobilize = valueAt(row, columns, 'mobilize');
       const description = valueAt(row, columns, 'description');
 
-      if (!title || !address) {
-        skippedRows += 1;
+      if (!title) {
+        diagnostics.skippedRows += 1;
         continue;
       }
 
-      const geocodeQuery = [address, cityState, zip].filter(Boolean).join(', ');
+      const location = [address, cityState, zip].filter(Boolean).join(', ');
+      if (!location) {
+        diagnostics.skippedRows += 1;
+        continue;
+      }
+
       try {
-        const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(geocodeQuery)}`, {
-          headers: { 'User-Agent': 'vedmapintegration/1.0' }
-        });
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(location)}`,
+          { headers: { 'User-Agent': 'vedmapintegration/1.0' } }
+        );
         const geoData = await geoResponse.json();
+
         if (!geoData || !geoData.length) {
-          skippedRows += 1;
+          diagnostics.geocodeFailures += 1;
           continue;
         }
 
+        const geo = geoData[0];
         events.push({
-          id: `${title}-${address}`,
+          id: `${title}-${location}`,
           title,
           hostOrganization: organization,
-          date: isExplicitNo(octoberEvent) || !octoberEvent ? 'TBD' : 'October 24, 2026',
+          date: !octoberEvent || isExplicitNo(octoberEvent) ? 'TBD' : 'October 24, 2026',
           time: startEnd,
           address,
           city: cityState,
@@ -135,23 +178,24 @@ module.exports = async (req, res) => {
           zip,
           social,
           octoberEvent,
-          startEnd,
           public: publicValue,
           mobilize,
           description,
           browserUrl: registrationLink,
-          lat: Number(geoData[0].lat),
-          lon: Number(geoData[0].lon)
+          lat: Number(geo.lat),
+          lon: Number(geo.lon)
         });
       } catch (error) {
-        skippedRows += 1;
-        console.error(`Geocoding error for ${geocodeQuery}:`, error);
+        diagnostics.geocodeFailures += 1;
+        console.error(`Geocoding error for ${location}:`, error);
       }
     }
 
-    res.status(200).json({ count: events.length, data: events, skippedRows, publicRows });
+    res.status(200).json({ count: events.length, data: events, diagnostics });
   } catch (error) {
     console.error('Error loading published events:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message, source: `published gid ${EVENTS_TAB_GID}` });
   }
 };
+
+
