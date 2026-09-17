@@ -9,30 +9,34 @@ const SHEET_URLS = [
 ];
 
 const normalize = (value) => String(value || '')
-  .replace(/^\uFEFF/, '')
-  .trim()
-  .toLowerCase()
-  .replace(/[^a-z0-9]/g, '');
+  .replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const aliases = {
-  title: ['title', 'eventtitle', 'eventname', 'name', 'event'],
-  host: ['host', 'hostorganization', 'organization', 'organizer', 'sponsor'],
-  date: ['date', 'eventdate', 'startdate'],
+  title: ['title', 'eventtitle', 'eventname', 'name', 'event', 'activity', 'activityname', 'program'],
+  host: ['host', 'hostorganization', 'organization', 'organizer', 'sponsor', 'group'],
+  date: ['date', 'eventdate', 'startdate', 'when'],
   time: ['time', 'eventtime', 'starttime'],
-  address: ['address', 'location', 'eventaddress', 'streetaddress', 'venuename', 'venue'],
+  address: ['address', 'location', 'eventaddress', 'streetaddress', 'venuename', 'venue', 'where', 'site', 'meetinglocation'],
   city: ['city', 'town'],
   state: ['state', 'st', 'province'],
   zip: ['zip', 'zipcode', 'postalcode', 'postcode'],
-  url: ['url', 'link', 'registration', 'registrationurl', 'eventurl', 'rsvp', 'rsvplink'],
-  description: ['description', 'details', 'eventdescription'],
+  url: ['url', 'link', 'registration', 'registrationurl', 'eventurl', 'rsvp', 'rsvplink', 'signup'],
+  description: ['description', 'details', 'eventdescription', 'notes'],
   lat: ['lat', 'latitude'],
   lon: ['lon', 'lng', 'longitude']
 };
 
-function getValue(record, headers, field) {
+function fieldIndex(headers, field) {
   const wanted = aliases[field] || [];
-  const index = headers.findIndex((header) => wanted.includes(normalize(header)));
-  return index === -1 ? '' : String(record[index] || '').trim();
+  return headers.findIndex((header) => {
+    const normalized = normalize(header);
+    return wanted.includes(normalized) || wanted.some((alias) => normalized.includes(alias));
+  });
+}
+
+function getValue(row, headers, field) {
+  const index = fieldIndex(headers, field);
+  return index < 0 ? '' : String(row[index] || '').trim();
 }
 
 async function downloadSheet() {
@@ -40,12 +44,8 @@ async function downloadSheet() {
   for (const url of SHEET_URLS) {
     const response = await fetch(url, { headers: { 'User-Agent': 'VedMapIntegration/1.0' } });
     const text = await response.text();
-    if (!response.ok || /sign in|request access|access denied/i.test(text.slice(0, 1000))) {
+    if (!response.ok || /^\s*<!doctype html|^\s*<html/i.test(text) || /sign in|request access|access denied/i.test(text.slice(0, 1000))) {
       lastError = new Error(`Google Sheet is not publicly readable (HTTP ${response.status})`);
-      continue;
-    }
-    if (/^\s*<!doctype html|^\s*<html/i.test(text)) {
-      lastError = new Error('Google Sheet returned an HTML sign-in/access page instead of CSV');
       continue;
     }
     return { text, url };
@@ -53,30 +53,37 @@ async function downloadSheet() {
   throw lastError || new Error('Unable to download Google Sheet');
 }
 
+function findHeaderRow(rows) {
+  let best = { index: 0, score: -1 };
+  rows.slice(0, 10).forEach((row, index) => {
+    const score = row.reduce((total, cell) => {
+      const value = normalize(cell);
+      return total + (Object.values(aliases).some((names) => names.some((name) => value === name || value.includes(name))) ? 1 : 0);
+    }, 0);
+    if (score > best.score) best = { index, score };
+  });
+  return best.index;
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
-
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   try {
     const { text, url: source } = await downloadSheet();
-    const rows = parse(text, {
-      skip_empty_lines: true,
-      relax_column_count: true,
-      bom: true,
-      trim: true
-    });
+    const rows = parse(text, { skip_empty_lines: true, relax_column_count: true, bom: true, trim: true });
+    if (!rows.length) throw new Error('The Google Sheet returned no rows');
 
-    if (rows.length < 2) throw new Error('The Google Sheet has no data rows');
-    const headers = rows[0].map((header) => String(header || '').trim());
+    const headerRow = findHeaderRow(rows);
+    const headers = rows[headerRow].map((value) => String(value || '').trim());
     const events = [];
     let skipped = 0;
 
-    for (let index = 1; index < rows.length; index += 1) {
+    for (let index = headerRow + 1; index < rows.length; index += 1) {
       const row = rows[index];
-      const title = getValue(row, headers, 'title');
+      const title = getValue(row, headers, 'title') || `Community event ${index - headerRow}`;
       const hostOrganization = getValue(row, headers, 'host');
       const date = getValue(row, headers, 'date');
       const time = getValue(row, headers, 'time');
@@ -90,15 +97,10 @@ module.exports = async (req, res) => {
       let lat = Number(getValue(row, headers, 'lat'));
       let lon = Number(getValue(row, headers, 'lon'));
 
-      if (!title || (!fullAddress && (!Number.isFinite(lat) || !Number.isFinite(lon)))) {
-        skipped += 1;
-        continue;
-      }
+      if (!fullAddress && (!Number.isFinite(lat) || !Number.isFinite(lon))) { skipped += 1; continue; }
 
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(fullAddress)}`, {
-          headers: { 'User-Agent': 'VedMapIntegration/1.0' }
-        });
+        const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(fullAddress)}`, { headers: { 'User-Agent': 'VedMapIntegration/1.0' } });
         const geoData = await geoResponse.json();
         if (!geoData[0]) { skipped += 1; continue; }
         lat = Number(geoData[0].lat);
@@ -108,7 +110,7 @@ module.exports = async (req, res) => {
       events.push({ id: `${index}-${title}`, title, hostOrganization, date, time, description, address: fullAddress, city, state, zip, lat, lon, browserUrl });
     }
 
-    res.status(200).json({ source, count: events.length, skipped, headers, data: events });
+    res.status(200).json({ source, count: events.length, skipped, headerRow, headers, data: events });
   } catch (error) {
     console.error('Error loading Google Sheet events:', error);
     res.status(500).json({ error: error.message, data: [] });
