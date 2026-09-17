@@ -23,45 +23,28 @@
       width: 100%;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow: hidden;
-    }
-    .app-container {
-      display: flex;
-      height: 100vh;
-      width: 100vw;
+      position: relative;
     }
 
-    /* Left Sidebar */
-    .sidebar {
-      width: 380px;
-      min-width: 320px;
-      height: 100%;
+    /* Pinned Top Bar Overlay - Guarantees Search Stays Above Leaflet */
+    .top-controls {
+      position: absolute;
+      top: 15px;
+      left: 60px;
+      z-index: 9999;
       background: #ffffff;
-      border-right: 1px solid #e2e8f0;
+      padding: 12px;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
       display: flex;
-      flex-direction: column;
-      z-index: 10;
-      box-shadow: 2px 0 10px rgba(0,0,0,0.05);
-    }
-    .sidebar-header {
-      padding: 16px;
-      background: #f8fafc;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    .sidebar-title {
-      font-size: 18px;
-      font-weight: 700;
-      color: #0f172a;
-      margin-bottom: 12px;
-    }
-    .input-group {
-      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
-      margin-bottom: 8px;
+      max-width: calc(100vw - 80px);
     }
+
     .filter-input {
-      width: 100%;
       padding: 8px 12px;
-      font-size: 13px;
+      font-size: 14px;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
       outline: none;
@@ -69,79 +52,37 @@
     .filter-input:focus {
       border-color: #2563eb;
     }
-    .zip-btn {
+
+    .btn {
       padding: 8px 14px;
       background: #2563eb;
-      color: #fff;
+      color: #ffffff;
       border: none;
       border-radius: 6px;
       font-weight: 600;
       font-size: 13px;
       cursor: pointer;
-      white-space: nowrap;
     }
-    .zip-btn:hover {
+    .btn:hover {
       background: #1d4ed8;
     }
-    .reset-btn {
+
+    .btn-reset {
       background: #f1f5f9;
       color: #475569;
       border: 1px solid #cbd5e1;
     }
-    .reset-btn:hover {
+    .btn-reset:hover {
       background: #e2e8f0;
     }
-    .results-count {
-      font-size: 12px;
-      color: #64748b;
-      margin-top: 4px;
-    }
 
-    /* Events List */
-    .events-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 12px;
-    }
-    .event-card {
-      padding: 12px;
-      margin-bottom: 10px;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      background: #ffffff;
-      cursor: pointer;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    }
-    .event-card:hover {
-      border-color: #93c5fd;
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
-    }
-    .card-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: #1e293b;
-      margin-bottom: 4px;
-    }
-    .card-meta {
-      font-size: 13px;
-      color: #64748b;
-      margin-bottom: 2px;
-    }
-    .card-distance {
-      display: inline-block;
-      font-size: 11px;
-      font-weight: 600;
-      color: #2563eb;
-      background: #eff6ff;
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-top: 4px;
-    }
-
-    /* Map Canvas */
+    /* Map fills screen */
     #map {
-      flex: 1;
-      height: 100%;
+      height: 100vh;
+      width: 100vw;
+      position: absolute;
+      top: 0;
+      left: 0;
       z-index: 1;
     }
 
@@ -172,51 +113,35 @@
 </head>
 <body>
 
-  <div class="app-container">
-    <!-- Sidebar -->
-    <div class="sidebar">
-      <div class="sidebar-header">
-        <div class="sidebar-title">Upcoming Events</div>
-
-        <!-- Keyword Search -->
-        <div class="input-group">
-          <input 
-            type="text" 
-            id="searchInput" 
-            class="filter-input" 
-            placeholder="Search by name, organization..."
-          />
-        </div>
-
-        <!-- ZIP Code + Radius Search -->
-        <div class="input-group">
-          <input 
-            type="text" 
-            id="zipInput" 
-            class="filter-input" 
-            placeholder="ZIP Code (e.g. 20001)"
-            maxlength="5"
-          />
-          <select id="radiusSelect" class="filter-input" style="width: 100px;">
-            <option value="10">10 mi</option>
-            <option value="25" selected>25 mi</option>
-            <option value="50">50 mi</option>
-            <option value="100">100 mi</option>
-          </select>
-          <button id="zipBtn" class="zip-btn">Find</button>
-          <button id="resetBtn" class="zip-btn reset-btn">Reset</button>
-        </div>
-
-        <div id="resultsCount" class="results-count">Loading events...</div>
-      </div>
-
-      <!-- Scrollable List -->
-      <div id="eventsList" class="events-list"></div>
-    </div>
-
-    <!-- Map Canvas -->
-    <div id="map"></div>
+  <!-- Search & ZIP Controls pinned directly in body at z-index 9999 -->
+  <div class="top-controls">
+    <input 
+      type="text" 
+      id="keywordSearch" 
+      class="filter-input" 
+      placeholder="Search event name, host..."
+      style="width: 200px;"
+    />
+    <input 
+      type="text" 
+      id="zipInput" 
+      class="filter-input" 
+      placeholder="ZIP Code" 
+      maxlength="5"
+      style="width: 90px;"
+    />
+    <select id="radiusSelect" class="filter-input" style="width: 90px;">
+      <option value="15">15 mi</option>
+      <option value="30" selected>30 mi</option>
+      <option value="60">60 mi</option>
+      <option value="120">120 mi</option>
+    </select>
+    <button id="searchZipBtn" class="btn">Search</button>
+    <button id="resetAllBtn" class="btn btn-reset">Reset</button>
+    <div id="statusTag" style="display: flex; align-items: center; font-size: 13px; color: #475569; padding-left: 4px;"></div>
   </div>
+
+  <div id="map"></div>
 
   <!-- Leaflet JS -->
   <script
@@ -225,50 +150,42 @@
   ></script>
 
   <script>
-    // Initialize Map
     const map = L.map('map').setView([39.8283, -98.5795], 4);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
     let allEvents = [];
-    let currentEvents = [];
-    const markerMap = new Map();
-    const markerGroup = L.featureGroup().addTo(map);
+    let markerLayer = L.featureGroup().addTo(map);
 
-    // Haversine Distance Formula (miles)
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-      const R = 3958.8; // Earth radius in miles
+    // Distance in miles (Haversine)
+    function getDistanceMiles(lat1, lon1, lat2, lon2) {
+      const R = 3958.8;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
       const a = 
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
         Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
-    function renderView(events) {
-      currentEvents = events;
-      markerGroup.clearLayers();
-      markerMap.clear();
+    function displayMarkers(events) {
+      markerLayer.clearLayers();
+      const statusEl = document.getElementById('statusTag');
 
-      const listContainer = document.getElementById('eventsList');
-      listContainer.innerHTML = '';
-
-      document.getElementById('resultsCount').innerText = `Showing ${events.length} event${events.length === 1 ? '' : 's'}`;
-
-      if (events.length === 0) {
-        listContainer.innerHTML = '<div style="padding: 16px; color: #64748b; font-size: 14px;">No events match your criteria.</div>';
+      if (!events || events.length === 0) {
+        statusEl.textContent = '0 events found';
         return;
       }
 
-      events.forEach((item, index) => {
-        // Marker & Popup
+      statusEl.textContent = `${events.length} event${events.length === 1 ? '' : 's'}`;
+
+      events.forEach((item) => {
         const marker = L.marker([item.lat, item.lon]);
-        const popupHtml = `
+        const popup = `
           <div class="event-popup">
             <div class="popup-title">${item.title}</div>
             ${item.hostOrganization ? `<div><strong>Host:</strong> ${item.hostOrganization}</div>` : ''}
@@ -277,99 +194,72 @@
             ${item.browserUrl ? `<a class="popup-btn" href="${item.browserUrl}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}
           </div>
         `;
-        marker.bindPopup(popupHtml);
-        markerGroup.addLayer(marker);
-        markerMap.set(index, marker);
-
-        // Sidebar Card
-        const card = document.createElement('div');
-        card.className = 'event-card';
-        card.innerHTML = `
-          <div class="card-title">${item.title}</div>
-          ${item.hostOrganization ? `<div class="card-meta">🏢 ${item.hostOrganization}</div>` : ''}
-          ${item.date || item.time ? `<div class="card-meta">📅 ${item.date} ${item.time}</div>` : ''}
-          ${item.address ? `<div class="card-meta">📍 ${item.address}</div>` : ''}
-          ${item.distance !== undefined ? `<div class="card-distance">${item.distance.toFixed(1)} miles away</div>` : ''}
-        `;
-
-        // Pan to marker on card click
-        card.addEventListener('click', () => {
-          map.setView([item.lat, item.lon], 14);
-          marker.openPopup();
-        });
-
-        listContainer.appendChild(card);
+        marker.bindPopup(popup);
+        markerLayer.addLayer(marker);
       });
 
-      map.fitBounds(markerGroup.getBounds(), { padding: [40, 40], maxZoom: 14 });
+      map.fitBounds(markerLayer.getBounds(), { padding: [60, 60], maxZoom: 13 });
     }
 
-    // Keyword Filtering
-    document.getElementById('searchInput').addEventListener('input', (e) => {
+    // Keyword Filter
+    document.getElementById('keywordSearch').addEventListener('input', (e) => {
       const q = e.target.value.toLowerCase().trim();
       if (!q) {
-        renderView(allEvents);
+        displayMarkers(allEvents);
         return;
       }
-      const filtered = allEvents.filter((item) => 
+      const matches = allEvents.filter((item) => 
         (item.title && item.title.toLowerCase().includes(q)) ||
         (item.hostOrganization && item.hostOrganization.toLowerCase().includes(q)) ||
         (item.address && item.address.toLowerCase().includes(q))
       );
-      renderView(filtered);
+      displayMarkers(matches);
     });
 
-    // ZIP Code Lookup via Zippopotam.us (free public API)
-    document.getElementById('zipBtn').addEventListener('click', async () => {
+    // ZIP Search
+    document.getElementById('searchZipBtn').addEventListener('click', async () => {
       const zip = document.getElementById('zipInput').value.trim();
       const radius = parseFloat(document.getElementById('radiusSelect').value);
 
       if (!/^\d{5}$/.test(zip)) {
-        alert('Please enter a valid 5-digit US ZIP code.');
+        alert('Please enter a 5-digit US ZIP code.');
         return;
       }
 
       try {
         const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
-        if (!res.ok) throw new Error('ZIP not found');
+        if (!res.ok) throw new Error('Invalid ZIP');
         const data = await res.json();
-        
         const zipLat = parseFloat(data.places[0].latitude);
         const zipLon = parseFloat(data.places[0].longitude);
 
-        // Calculate distance and filter
-        const withinRadius = allEvents
-          .map((ev) => {
-            const distance = calculateDistance(zipLat, zipLon, ev.lat, ev.lon);
-            return { ...ev, distance };
-          })
-          .filter((ev) => ev.distance <= radius)
-          .sort((a, b) => a.distance - b.distance);
+        const filtered = allEvents.filter((ev) => {
+          return getDistanceMiles(zipLat, zipLon, ev.lat, ev.lon) <= radius;
+        });
 
-        renderView(withinRadius);
+        displayMarkers(filtered);
       } catch (err) {
-        alert('Could not locate ZIP code. Please try another.');
+        alert('Could not find that ZIP code.');
       }
     });
 
-    // Reset Filters
-    document.getElementById('resetBtn').addEventListener('click', () => {
-      document.getElementById('searchInput').value = '';
+    // Reset
+    document.getElementById('resetAllBtn').addEventListener('click', () => {
+      document.getElementById('keywordSearch').value = '';
       document.getElementById('zipInput').value = '';
-      allEvents.forEach((ev) => delete ev.distance);
-      renderView(allEvents);
+      displayMarkers(allEvents);
     });
 
-    // Initial Fetch
+    // Fetch initial dataset
     fetch('/api/get-mobilize-events')
-      .then((res) => res.json())
-      .then((response) => {
-        allEvents = response.data || [];
-        renderView(allEvents);
+      .then((r) => r.json())
+      .then((data) => {
+        allEvents = data.data || [];
+        displayMarkers(allEvents);
       })
       .catch((err) => {
         console.error(err);
-        document.getElementById('resultsCount').innerText = 'Failed to load events.';
+        document.getElementById('statusTag').textContent = 'Error loading events';
       });
   </script>
 </body>
