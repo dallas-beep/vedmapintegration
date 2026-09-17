@@ -3,204 +3,134 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ved Map Integration</title>
-
-  <!-- Leaflet CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    crossorigin=""
-  />
-
+  <title>Community Events Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    html, body {
-      height: 100%;
-      width: 100%;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-
-    #map {
-      height: 100vh;
-      width: 100vw;
-      position: absolute;
-      top: 0;
-      left: 0;
-      z-index: 1;
-    }
-
-    /* Small dark title badge */
-    .title-badge {
-      position: absolute;
-      top: 14px;
-      left: 60px;
-      z-index: 1001;
-      background: #1e293b;
-      color: #ffffff;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      pointer-events: none;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-
-    /* Floating search bar */
-    .search-wrapper {
-      position: absolute;
-      top: 10px;
-      left: 195px;
-      z-index: 1000;
-      width: calc(100% - 220px);
-      max-width: 440px;
-    }
-
-    .search-input {
-      width: 100%;
-      padding: 8px 14px;
-      font-size: 14px;
-      color: #0f172a;
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      outline: none;
-    }
-
-    .search-input:focus {
-      border-color: #2563eb;
-    }
-
-    /* Popup Styling */
-    .popup-container {
-      font-size: 13px;
-      line-height: 1.45;
-      color: #334155;
-      min-width: 200px;
-      max-width: 280px;
-    }
-    .popup-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: #0f172a;
-      margin-bottom: 6px;
-    }
-    .popup-row {
-      margin-bottom: 3px;
-    }
-    .popup-link-btn {
-      display: inline-block;
-      margin-top: 8px;
-      padding: 6px 12px;
-      background-color: #2563eb;
-      color: #ffffff !important;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 12px;
-      border-radius: 4px;
-    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
+    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 18px; height: 100vh; padding: 16px; background: #f8fafc; }
+    .sidebar { display: flex; flex-direction: column; min-height: 0; gap: 12px; }
+    .controls, .event-card, .empty { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 5px #0000000a; }
+    .controls { padding: 14px; }
+    .search { width: 100%; padding: 11px 13px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+    .control-row { display: flex; gap: 8px; margin-top: 10px; }
+    select, .location-button { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font-size: 13px; }
+    .location-button { cursor: pointer; color: #fff; background: #551b7a; border-color: #551b7a; }
+    .location-button:hover { background: #6cb090; border-color: #6cb090; }
+    h2 { margin: 2px 0 0; font-size: 18px; }
+    .status { padding: 9px 12px; border-radius: 8px; background: #551b7a; color: #fff; font-size: 12px; font-weight: 600; text-align: center; }
+    .event-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    .event-card { padding: 14px; cursor: pointer; }
+    .event-card:hover { border-color: #6cb090; transform: translateY(-1px); }
+    .event-card h3 { margin: 0 0 6px; color: #551b7a; font-size: 15px; }
+    .event-card p { margin: 4px 0; color: #475569; font-size: 13px; line-height: 1.35; }
+    .distance { color: #551b7a !important; font-weight: 700; }
+    .empty { padding: 22px 14px; text-align: center; color: #64748b; font-size: 14px; }
+    #map { min-height: 500px; height: 100%; border: 1px solid #e2e8f0; border-radius: 12px; }
+    @media (max-width: 850px) { .layout { grid-template-columns: 1fr; height: auto; min-height: 100vh; } .sidebar { max-height: none; } #map { height: 55vh; } }
   </style>
 </head>
 <body>
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="controls">
+        <input id="search" class="search" type="search" placeholder="Search events, city, state, or zip..." />
+        <div class="control-row">
+          <select id="radius" aria-label="Filter events by distance">
+            <option value="all">Any distance</option>
+            <option value="1">Within 1 mile</option>
+            <option value="5">Within 5 miles</option>
+            <option value="10">Within 10 miles</option>
+            <option value="15">Within 15 miles</option>
+            <option value="20">Within 20 miles</option>
+            <option value="25">Within 25 miles</option>
+          </select>
+          <button id="location" class="location-button" type="button">Use my location</button>
+        </div>
+      </div>
+      <h2>Events</h2>
+      <div id="eventList" class="event-list"><div class="empty">Loading events...</div></div>
+      <div id="status" class="status">Connecting...</div>
+    </aside>
+    <div id="map" aria-label="Event map"></div>
+  </main>
 
-  <div class="title-badge">Ved Map Integration</div>
-
-  <div class="search-wrapper">
-    <input 
-      type="text" 
-      id="mapSearch" 
-      class="search-input" 
-      placeholder="Search events, organizations, cities..." 
-      autocomplete="off"
-    />
-  </div>
-
-  <div id="map"></div>
-
-  <!-- Leaflet JS -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    crossorigin=""
-  ></script>
-
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
-    // Initialize map immediately
     const map = L.map('map').setView([39.8283, -98.5795], 4);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    let allEvents = [];
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
     const markerLayer = L.featureGroup().addTo(map);
+    let allEvents = [];
+    let userLocation = null;
 
-    function renderMarkers(events) {
-      markerLayer.clearLayers();
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+    const milesBetween = (a, b) => {
+      const radians = (degrees) => degrees * Math.PI / 180;
+      const dLat = radians(b.lat - a.lat), dLon = radians(b.lon - a.lon);
+      const x = Math.sin(dLat / 2) ** 2 + Math.cos(radians(a.lat)) * Math.cos(radians(b.lat)) * Math.sin(dLon / 2) ** 2;
+      return 3958.8 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+    };
 
-      if (!events || events.length === 0) {
-        return;
-      }
-
-      events.forEach((item) => {
-        if (typeof item.lat !== 'number' || typeof item.lon !== 'number') return;
-
-        const marker = L.marker([item.lat, item.lon]);
-        const popupHtml = `
-          <div class="popup-container">
-            <div class="popup-title">${item.title}</div>
-            ${item.hostOrganization ? `<div class="popup-row"><strong>Host:</strong> ${item.hostOrganization}</div>` : ''}
-            ${item.date || item.time ? `<div class="popup-row"><strong>When:</strong> ${item.date} ${item.time}</div>` : ''}
-            ${item.address ? `<div class="popup-row"><strong>Where:</strong> ${item.address}</div>` : ''}
-            ${item.browserUrl ? `<a class="popup-link-btn" href="${item.browserUrl}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}
-          </div>
-        `;
-        marker.bindPopup(popupHtml);
-        markerLayer.addLayer(marker);
-      });
-
-      // Crucial: Only fitBounds if there is at least one layer to avoid Leaflet throwing NaN errors
-      if (markerLayer.getLayers().length > 0) {
-        map.fitBounds(markerLayer.getBounds(), { padding: [50, 50], maxZoom: 12 });
-      }
+    function visibleEvents() {
+      const query = document.getElementById('search').value.toLowerCase().trim();
+      const radius = document.getElementById('radius').value;
+      return allEvents.filter((event) => {
+        const textMatch = !query || [event.title, event.hostOrganization, event.address, event.city, event.state, event.zip, event.date].some((value) => String(value || '').toLowerCase().includes(query));
+        const distance = userLocation ? milesBetween(userLocation, event) : null;
+        return textMatch && (radius === 'all' || (distance !== null && distance <= Number(radius)));
+      }).map((event) => ({ ...event, distance: userLocation ? milesBetween(userLocation, event) : null }));
     }
 
-    // Search filter
-    document.getElementById('mapSearch').addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase().trim();
+    function render(events) {
+      markerLayer.clearLayers();
+      const list = document.getElementById('eventList');
+      list.innerHTML = '';
+      if (!events.length) list.innerHTML = '<div class="empty">No events match your filters.</div>';
 
-      if (!q) {
-        renderMarkers(allEvents);
-        return;
-      }
-
-      const filtered = allEvents.filter((item) => {
-        return (
-          (item.title && item.title.toLowerCase().includes(q)) ||
-          (item.hostOrganization && item.hostOrganization.toLowerCase().includes(q)) ||
-          (item.address && item.address.toLowerCase().includes(q)) ||
-          (item.date && item.date.toLowerCase().includes(q))
-        );
+      events.forEach((event) => {
+        const marker = L.marker([event.lat, event.lon]).bindPopup(`<strong>${escapeHtml(event.title)}</strong><br>${escapeHtml(event.address)}${event.browserUrl ? `<br><a href="${escapeHtml(event.browserUrl)}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}`);
+        markerLayer.addLayer(marker);
+        const card = document.createElement('article');
+        card.className = 'event-card';
+        card.innerHTML = `<h3>${escapeHtml(event.title)}</h3><p>${escapeHtml(event.date)} ${escapeHtml(event.time)}</p><p>${escapeHtml(event.address)}</p>${event.distance !== null ? `<p class="distance">${event.distance.toFixed(1)} miles away</p>` : ''}`;
+        card.addEventListener('click', () => { map.setView([event.lat, event.lon], 13); marker.openPopup(); });
+        list.appendChild(card);
       });
 
-      renderMarkers(filtered);
+      document.getElementById('status').textContent = `${events.length} event${events.length === 1 ? '' : 's'} shown`;
+      if (events.length && document.getElementById('search').value === '' && document.getElementById('radius').value === 'all') map.fitBounds(markerLayer.getBounds(), { padding: [35, 35], maxZoom: 12 });
+    }
+
+    function applyFilters() { render(visibleEvents()); }
+    document.getElementById('search').addEventListener('input', applyFilters);
+    document.getElementById('radius').addEventListener('change', () => {
+      if (document.getElementById('radius').value !== 'all' && !userLocation) requestLocation(); else applyFilters();
     });
+    document.getElementById('location').addEventListener('click', requestLocation);
 
-    // Fetch live data
-    fetch('/api/get-mobilize-events')
-      .then((res) => res.json())
-      .then((payload) => {
-        allEvents = payload.data || [];
-        renderMarkers(allEvents);
-      })
-      .catch((err) => {
-        console.error('Error loading events:', err);
-      });
+    function requestLocation() {
+      if (!navigator.geolocation) { alert('Location is not available in this browser.'); return; }
+      document.getElementById('status').textContent = 'Requesting your location...';
+      navigator.geolocation.getCurrentPosition((position) => {
+        userLocation = { lat: position.coords.latitude, lon: position.coords.longitude };
+        map.setView([userLocation.lat, userLocation.lon], 10);
+        applyFilters();
+      }, () => {
+        document.getElementById('status').textContent = 'Location permission is needed for distance filtering';
+      }, { enableHighAccuracy: true, timeout: 10000 });
+    }
+
+    fetch('/api/get-mobilize-events').then((response) => {
+      if (!response.ok) throw new Error(`API error: ${response.status}`);
+      return response.json();
+    }).then((payload) => {
+      allEvents = (payload.data || []).filter((event) => Number.isFinite(Number(event.lat)) && Number.isFinite(Number(event.lon))).map((event) => ({ ...event, lat: Number(event.lat), lon: Number(event.lon) }));
+      applyFilters();
+    }).catch((error) => {
+      console.error(error);
+      document.getElementById('eventList').innerHTML = '<div class="empty">Unable to load events. Please try again later.</div>';
+      document.getElementById('status').textContent = 'Error loading events';
+    });
   </script>
 </body>
 </html>
