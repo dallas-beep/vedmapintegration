@@ -3,66 +3,34 @@ const { parse } = require('csv-parse/sync');
 
 const SHEET_ID = '1DJgMiQT6oMxBvdKFK6bha2EEFkJrNrXYU8U0dEMDhhs';
 const SHEET_GID = '0';
-const SHEET_URLS = [
-  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`,
-  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`
-];
+const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`;
 
-const normalize = (value) => String(value || '')
-  .replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-
-const aliases = {
-  title: ['title', 'eventtitle', 'eventname', 'name', 'event', 'activity', 'activityname', 'program'],
-  host: ['host', 'hostorganization', 'organization', 'organizer', 'sponsor', 'group'],
-  date: ['date', 'eventdate', 'startdate', 'when'],
-  time: ['time', 'eventtime', 'starttime'],
-  address: ['address', 'location', 'eventaddress', 'streetaddress', 'venuename', 'venue', 'where', 'site', 'meetinglocation'],
-  city: ['city', 'town'],
-  state: ['state', 'st', 'province'],
-  zip: ['zip', 'zipcode', 'postalcode', 'postcode'],
-  url: ['url', 'link', 'registration', 'registrationurl', 'eventurl', 'rsvp', 'rsvplink', 'signup'],
-  description: ['description', 'details', 'eventdescription', 'notes'],
-  lat: ['lat', 'latitude'],
-  lon: ['lon', 'lng', 'longitude']
+const clean = (value) => String(value || '').replace(/^\uFEFF/, '').trim();
+const isPublic = (value) => !/^(no|nope|false|private|not open|closed)$/i.test(clean(value));
+const isFullStreetAddress = (value) => {
+  const text = clean(value);
+  return /\d+\s+[^,]+(?:,|\s)(?:[A-Za-z .'-]+,)?\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?/i.test(text) ||
+    (/\d+\s+/.test(text) && /\b(?:street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|way|court|ct|parkway|pkwy|highway|hwy)\b/i.test(text));
 };
+const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
 
-function fieldIndex(headers, field) {
-  const wanted = aliases[field] || [];
-  return headers.findIndex((header) => {
-    const normalized = normalize(header);
-    return wanted.includes(normalized) || wanted.some((alias) => normalized.includes(alias));
+function extractDates(value) {
+  const text = clean(value);
+  const matches = text.match(/\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,\s*\d{4})?|\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/gi);
+  return matches ? [...new Set(matches.map(clean))].join(', ') : '';
+}
+
+async function geocodeZip(zipcode) {
+  const zip = clean(zipcode).match(/\b\d{5}(?:-\d{4})?\b/)?.[0];
+  if (!zip) return null;
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&country=United%20States&postalcode=${encodeURIComponent(zip)}`, {
+    headers: { 'User-Agent': 'VedMapIntegration/1.0' }
   });
-}
-
-function getValue(row, headers, field) {
-  const index = fieldIndex(headers, field);
-  return index < 0 ? '' : String(row[index] || '').trim();
-}
-
-async function downloadSheet() {
-  let lastError;
-  for (const url of SHEET_URLS) {
-    const response = await fetch(url, { headers: { 'User-Agent': 'VedMapIntegration/1.0' } });
-    const text = await response.text();
-    if (!response.ok || /^\s*<!doctype html|^\s*<html/i.test(text) || /sign in|request access|access denied/i.test(text.slice(0, 1000))) {
-      lastError = new Error(`Google Sheet is not publicly readable (HTTP ${response.status})`);
-      continue;
-    }
-    return { text, url };
-  }
-  throw lastError || new Error('Unable to download Google Sheet');
-}
-
-function findHeaderRow(rows) {
-  let best = { index: 0, score: -1 };
-  rows.slice(0, 10).forEach((row, index) => {
-    const score = row.reduce((total, cell) => {
-      const value = normalize(cell);
-      return total + (Object.values(aliases).some((names) => names.some((name) => value === name || value.includes(name))) ? 1 : 0);
-    }, 0);
-    if (score > best.score) best = { index, score };
-  });
-  return best.index;
+  const results = await response.json();
+  if (!results[0]) return null;
+  const lat = Number(results[0].lat);
+  const lon = Number(results[0].lon);
+  return validCoordinates(lat, lon) ? { lat, lon } : null;
 }
 
 module.exports = async (req, res) => {
@@ -72,45 +40,55 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   try {
-    const { text, url: source } = await downloadSheet();
-    const rows = parse(text, { skip_empty_lines: true, relax_column_count: true, bom: true, trim: true });
-    if (!rows.length) throw new Error('The Google Sheet returned no rows');
-
-    const headerRow = findHeaderRow(rows);
-    const headers = rows[headerRow].map((value) => String(value || '').trim());
-    const events = [];
-    let skipped = 0;
-
-    for (let index = headerRow + 1; index < rows.length; index += 1) {
-      const row = rows[index];
-      const title = getValue(row, headers, 'title') || `Community event ${index - headerRow}`;
-      const hostOrganization = getValue(row, headers, 'host');
-      const date = getValue(row, headers, 'date');
-      const time = getValue(row, headers, 'time');
-      const address = getValue(row, headers, 'address');
-      const city = getValue(row, headers, 'city');
-      const state = getValue(row, headers, 'state');
-      const zip = getValue(row, headers, 'zip');
-      const browserUrl = getValue(row, headers, 'url');
-      const description = getValue(row, headers, 'description');
-      const fullAddress = [address, city, state, zip].filter(Boolean).join(', ');
-      let lat = Number(getValue(row, headers, 'lat'));
-      let lon = Number(getValue(row, headers, 'lon'));
-
-      if (!fullAddress && (!Number.isFinite(lat) || !Number.isFinite(lon))) { skipped += 1; continue; }
-
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(fullAddress)}`, { headers: { 'User-Agent': 'VedMapIntegration/1.0' } });
-        const geoData = await geoResponse.json();
-        if (!geoData[0]) { skipped += 1; continue; }
-        lat = Number(geoData[0].lat);
-        lon = Number(geoData[0].lon);
-      }
-
-      events.push({ id: `${index}-${title}`, title, hostOrganization, date, time, description, address: fullAddress, city, state, zip, lat, lon, browserUrl });
+    const response = await fetch(SHEET_CSV_URL, { headers: { 'User-Agent': 'VedMapIntegration/1.0' } });
+    const text = await response.text();
+    if (!response.ok || /^\s*<!doctype html|^\s*<html/i.test(text)) {
+      throw new Error(`Google Sheet is not publicly readable (HTTP ${response.status})`);
     }
 
-    res.status(200).json({ source, count: events.length, skipped, headerRow, headers, data: events });
+    const rows = parse(text, { skip_empty_lines: true, relax_column_count: true, bom: true, trim: true });
+    if (rows.length < 2) throw new Error('The Google Sheet returned no event rows');
+
+    // Fixed spreadsheet columns: C=host, K=date answer, L=name, M=time,
+    // N=location, O=public, P=registration, R=description, Y=zipcode.
+    const events = [];
+    let skipped = 0;
+    for (let index = 1; index < rows.length; index += 1) {
+      const row = rows[index];
+      const hostOrganization = clean(row[2]);
+      const dateAnswer = clean(row[10]);
+      const title = clean(row[11]);
+      const time = clean(row[12]);
+      const locationEntry = clean(row[13]);
+      const publicAnswer = clean(row[14]);
+      const browserUrl = clean(row[15]);
+      const description = clean(row[17]);
+      const zip = clean(row[24]);
+
+      if (!title || !isPublic(publicAnswer) || !zip) { skipped += 1; continue; }
+      const coordinates = await geocodeZip(zip);
+      if (!coordinates) { skipped += 1; continue; }
+
+      const address = isFullStreetAddress(locationEntry) ? locationEntry : '';
+      events.push({
+        id: `${index}-${title}`,
+        title,
+        hostOrganization,
+        date: extractDates(dateAnswer),
+        time,
+        description,
+        address,
+        location: locationEntry,
+        city: '',
+        state: '',
+        zip,
+        lat: coordinates.lat,
+        lon: coordinates.lon,
+        browserUrl
+      });
+    }
+
+    res.status(200).json({ source: SHEET_CSV_URL, count: events.length, skipped, data: events });
   } catch (error) {
     console.error('Error loading Google Sheet events:', error);
     res.status(500).json({ error: error.message, data: [] });
