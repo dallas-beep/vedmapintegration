@@ -5,25 +5,26 @@ const SHEET_ID = '1DJgMiQT6oMxBvdKFK6bha2EEFkJrNrXYU8U0dEMDhhs';
 const SHEET_GID = '0';
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`;
 
-const clean = (value) => String(value || '').replace(/^\uFEFF/, '').trim();
-const isPublic = (value) => !/^(no|nope|false|private|not open|closed)$/i.test(clean(value));
-const isFullStreetAddress = (value) => {
-  const text = clean(value);
-  return /\d+\s+[^,]+(?:,|\s)(?:[A-Za-z .'-]+,)?\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?/i.test(text) ||
-    (/\d+\s+/.test(text) && /\b(?:street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|way|court|ct|parkway|pkwy|highway|hwy)\b/i.test(text));
-};
+const clean = (value) => String(value ?? '').replace(/^\uFEFF/, '').replace(/\r/g, '').trim();
+const isPublicEvent = (value) => /^(yes|y|open|public|available)$/i.test(clean(value));
 const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
 
-function extractDates(value) {
+const isFullStreetAddress = (value) => {
   const text = clean(value);
-  const matches = text.match(/\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,\s*\d{4})?|\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/gi);
+  if (!text) return false;
+  return /\d+\s+/.test(text) && /\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|way|court|ct|parkway|pkwy|circle|cir|highway|hwy|trail|trl|place|pl)\b/i.test(text);
+};
+
+function extractDates(value) {
+  const text = clean(value).replace(/^(yes|no)\s*,?\s*/i, '');
+  const matches = text.match(/(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?|\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/gi);
   return matches ? [...new Set(matches.map(clean))].join(', ') : '';
 }
 
 async function geocodeZip(zipcode) {
-  const zip = clean(zipcode).match(/\b\d{5}(?:-\d{4})?\b/)?.[0];
+  const zip = clean(zipcode).match(/\b\d{5}(?:-\d{4})?\b/);
   if (!zip) return null;
-  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&country=United%20States&postalcode=${encodeURIComponent(zip)}`, {
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&postalcode=${encodeURIComponent(zip[0])}`, {
     headers: { 'User-Agent': 'VedMapIntegration/1.0' }
   });
   const results = await response.json();
@@ -41,16 +42,16 @@ module.exports = async (req, res) => {
 
   try {
     const response = await fetch(SHEET_CSV_URL, { headers: { 'User-Agent': 'VedMapIntegration/1.0' } });
-    const text = await response.text();
-    if (!response.ok || /^\s*<!doctype html|^\s*<html/i.test(text)) {
+    const csvText = await response.text();
+    if (!response.ok || /^\s*<!doctype html|^\s*<html/i.test(csvText)) {
       throw new Error(`Google Sheet is not publicly readable (HTTP ${response.status})`);
     }
 
-    const rows = parse(text, { skip_empty_lines: true, relax_column_count: true, bom: true, trim: true });
+    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true, bom: true, trim: true });
     if (rows.length < 2) throw new Error('The Google Sheet returned no event rows');
 
-    // Fixed spreadsheet columns: C=host, K=date answer, L=name, M=time,
-    // N=location, O=public, P=registration, R=description, Y=zipcode.
+    // CSV columns are zero-based: C=2, K=10, L=11, M=12, N=13,
+    // O=14, P=15, R=17, Y=24. AA/AB are source coordinates but ZIP is authoritative.
     const events = [];
     let skipped = 0;
     for (let index = 1; index < rows.length; index += 1) {
@@ -65,26 +66,24 @@ module.exports = async (req, res) => {
       const description = clean(row[17]);
       const zip = clean(row[24]);
 
-      if (!title || !isPublic(publicAnswer) || !zip) { skipped += 1; continue; }
+      if (!title || !zip || !isPublicEvent(publicAnswer)) { skipped += 1; continue; }
       const coordinates = await geocodeZip(zip);
       if (!coordinates) { skipped += 1; continue; }
 
-      const address = isFullStreetAddress(locationEntry) ? locationEntry : '';
       events.push({
         id: `${index}-${title}`,
         title,
         hostOrganization,
         date: extractDates(dateAnswer),
         time,
+        address: isFullStreetAddress(locationEntry) ? locationEntry : '',
         description,
-        address,
-        location: locationEntry,
+        browserUrl,
         city: '',
         state: '',
         zip,
         lat: coordinates.lat,
-        lon: coordinates.lon,
-        browserUrl
+        lon: coordinates.lon
       });
     }
 
