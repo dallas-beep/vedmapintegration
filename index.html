@@ -75,7 +75,7 @@
       const query = document.getElementById('search').value.toLowerCase().trim();
       const radius = document.getElementById('radius').value;
       return allEvents.filter((event) => {
-        const textMatch = !query || [event.title, event.hostOrganization, event.address, event.city, event.state, event.zip, event.date].some((value) => String(value || '').toLowerCase().includes(query));
+        const textMatch = !query || [event.title, event.hostOrganization, event.address, event.city, event.state, event.zip, event.date, event.description].some((value) => String(value || '').toLowerCase().includes(query));
         const distance = userLocation ? milesBetween(userLocation, event) : null;
         return textMatch && (radius === 'all' || (distance !== null && distance <= Number(radius)));
       }).map((event) => ({ ...event, distance: userLocation ? milesBetween(userLocation, event) : null }));
@@ -88,11 +88,21 @@
       if (!events.length) list.innerHTML = '<div class="empty">No events match your filters.</div>';
 
       events.forEach((event) => {
-        const marker = L.marker([event.lat, event.lon]).bindPopup(`<strong>${escapeHtml(event.title)}</strong><br>${escapeHtml(event.address)}${event.browserUrl ? `<br><a href="${escapeHtml(event.browserUrl)}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}`);
+        const location = [event.address, event.city, event.state, event.zip].filter(Boolean).join(', ');
+        const details = [
+          event.hostOrganization && `<strong>Hosted by:</strong> ${escapeHtml(event.hostOrganization)}`,
+          event.date && `<strong>Date:</strong> ${escapeHtml(event.date)}`,
+          event.time && `<strong>Time:</strong> ${escapeHtml(event.time)}`,
+          location && `<strong>Location:</strong> ${escapeHtml(location)}`,
+          event.description && `<strong>Details:</strong><br>${escapeHtml(event.description).replace(/\n/g, '<br>')}`,
+          event.distance !== null && event.distance !== undefined && `<strong>Distance:</strong> ${event.distance.toFixed(1)} miles away`
+        ].filter(Boolean).join('<br>');
+        const rsvpLink = event.browserUrl ? `<br><a href="${escapeHtml(event.browserUrl)}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : '';
+        const marker = L.marker([event.lat, event.lon]).bindPopup(`<div class="event-popup"><strong>${escapeHtml(event.title)}</strong><br>${details}${rsvpLink}</div>`);
         markerLayer.addLayer(marker);
         const card = document.createElement('article');
         card.className = 'event-card';
-        card.innerHTML = `<h3>${escapeHtml(event.title)}</h3><p>${escapeHtml(event.date)} ${escapeHtml(event.time)}</p><p>${escapeHtml(event.address)}</p>${event.distance !== null ? `<p class="distance">${event.distance.toFixed(1)} miles away</p>` : ''}`;
+        card.innerHTML = `<h3>${escapeHtml(event.title)}</h3><p>${escapeHtml(event.date)} ${escapeHtml(event.time)}</p><p>${escapeHtml(location)}</p>${event.distance !== null ? `<p class="distance">${event.distance.toFixed(1)} miles away</p>` : ''}`;
         card.addEventListener('click', () => { map.setView([event.lat, event.lon], 13); marker.openPopup(); });
         list.appendChild(card);
       });
