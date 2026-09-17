@@ -28,60 +28,55 @@
     #map {
       height: 100vh;
       width: 100vw;
+      position: absolute;
+      top: 0;
+      left: 0;
       z-index: 1;
     }
 
-    /* Small dark title badge from screenshot */
+    /* Small dark title badge */
     .title-badge {
       position: absolute;
-      top: 12px;
-      left: 12px;
+      top: 14px;
+      left: 60px;
       z-index: 1001;
-      background: rgba(30, 41, 59, 0.85);
+      background: #1e293b;
       color: #ffffff;
-      padding: 4px 10px;
+      padding: 4px 8px;
       border-radius: 4px;
       font-size: 11px;
       font-weight: 600;
-      letter-spacing: 0.3px;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
       pointer-events: none;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
 
-    /* Floating Search Bar container positioned clear of Leaflet zoom controls */
+    /* Floating search bar */
     .search-wrapper {
       position: absolute;
       top: 10px;
-      left: 62px; /* Clears standard Leaflet +/- control buttons */
+      left: 195px;
       z-index: 1000;
-      width: calc(100% - 80px);
-      max-width: 460px;
+      width: calc(100% - 220px);
+      max-width: 440px;
     }
 
     .search-input {
       width: 100%;
-      padding: 10px 16px;
+      padding: 8px 14px;
       font-size: 14px;
-      color: #1e293b;
+      color: #0f172a;
       background: #ffffff;
-      border: 1px solid rgba(0, 0, 0, 0.15);
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       outline: none;
-      transition: all 0.2s ease;
     }
 
     .search-input:focus {
       border-color: #2563eb;
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
     }
 
     /* Popup Styling */
-    .leaflet-popup-content-wrapper {
-      border-radius: 8px;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-      padding: 6px;
-    }
     .popup-container {
       font-size: 13px;
       line-height: 1.45;
@@ -96,35 +91,25 @@
       margin-bottom: 6px;
     }
     .popup-row {
-      margin-bottom: 4px;
-    }
-    .popup-row strong {
-      color: #1e293b;
+      margin-bottom: 3px;
     }
     .popup-link-btn {
       display: inline-block;
       margin-top: 8px;
-      padding: 7px 14px;
+      padding: 6px 12px;
       background-color: #2563eb;
       color: #ffffff !important;
       text-decoration: none;
       font-weight: 600;
-      font-size: 13px;
-      border-radius: 6px;
-      text-align: center;
-      transition: background 0.15s ease;
-    }
-    .popup-link-btn:hover {
-      background-color: #1d4ed8;
+      font-size: 12px;
+      border-radius: 4px;
     }
   </style>
 </head>
 <body>
 
-  <!-- Small Title Badge -->
   <div class="title-badge">Ved Map Integration</div>
 
-  <!-- Search Bar -->
   <div class="search-wrapper">
     <input 
       type="text" 
@@ -135,60 +120,57 @@
     />
   </div>
 
-  <!-- Leaflet Map Container -->
   <div id="map"></div>
 
-  <!-- Leaflet JavaScript -->
+  <!-- Leaflet JS -->
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     crossorigin=""
   ></script>
 
   <script>
-    // 1. Initialize Leaflet Map
-    const map = L.map('map', {
-      zoomControl: true
-    }).setView([39.8283, -98.5795], 4);
-
-    // Reposition zoom controls slightly lower so badge doesn't overlap
-    map.zoomControl.setPosition('topleft');
+    // Initialize map immediately
+    const map = L.map('map').setView([39.8283, -98.5795], 4);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
     let allEvents = [];
     const markerLayer = L.featureGroup().addTo(map);
 
-    // 2. Render Markers & Linked Popups
     function renderMarkers(events) {
       markerLayer.clearLayers();
 
-      if (!events || events.length === 0) return;
+      if (!events || events.length === 0) {
+        return;
+      }
 
       events.forEach((item) => {
-        const marker = L.marker([item.lat, item.lon]);
+        if (typeof item.lat !== 'number' || typeof item.lon !== 'number') return;
 
+        const marker = L.marker([item.lat, item.lon]);
         const popupHtml = `
           <div class="popup-container">
-            <div class="popup-title">${item.title || 'Untitled Event'}</div>
+            <div class="popup-title">${item.title}</div>
             ${item.hostOrganization ? `<div class="popup-row"><strong>Host:</strong> ${item.hostOrganization}</div>` : ''}
             ${item.date || item.time ? `<div class="popup-row"><strong>When:</strong> ${item.date} ${item.time}</div>` : ''}
             ${item.address ? `<div class="popup-row"><strong>Where:</strong> ${item.address}</div>` : ''}
             ${item.browserUrl ? `<a class="popup-link-btn" href="${item.browserUrl}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}
           </div>
         `;
-
         marker.bindPopup(popupHtml);
         markerLayer.addLayer(marker);
       });
 
-      // Fit map around available pins
-      map.fitBounds(markerLayer.getBounds(), { padding: [50, 50], maxZoom: 12 });
+      // Crucial: Only fitBounds if there is at least one layer to avoid Leaflet throwing NaN errors
+      if (markerLayer.getLayers().length > 0) {
+        map.fitBounds(markerLayer.getBounds(), { padding: [50, 50], maxZoom: 12 });
+      }
     }
 
-    // 3. Search Bar Listener
+    // Search filter
     document.getElementById('mapSearch').addEventListener('input', (e) => {
       const q = e.target.value.toLowerCase().trim();
 
@@ -209,18 +191,15 @@
       renderMarkers(filtered);
     });
 
-    // 4. Load from backend API
+    // Fetch live data
     fetch('/api/get-mobilize-events')
-      .then((res) => {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
+      .then((res) => res.json())
       .then((payload) => {
         allEvents = payload.data || [];
         renderMarkers(allEvents);
       })
       .catch((err) => {
-        console.error('Error fetching event data:', err);
+        console.error('Error loading events:', err);
       });
   </script>
 </body>
