@@ -1,104 +1,376 @@
-const fetch = require('node-fetch');
-const { parse } = require('csv-parse/sync');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Events Map & Directory</title>
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Content-Type', 'application/json');
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  />
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  try {
-    const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
-    const GID = '619059883';
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
-
-    const response = await fetch(csvUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch sheet: HTTP ${response.status}. Check link sharing permissions.`);
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body, html {
+      height: 100%;
+      width: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+    .app-container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
     }
 
-    const csvText = await response.text();
-    
-    // columns: false treats each row as an array [col0, col1, col2, ...]
-    const rows = parse(csvText, {
-      columns: false,
-      skip_empty_lines: true
-    });
+    /* Left Sidebar */
+    .sidebar {
+      width: 380px;
+      min-width: 320px;
+      height: 100%;
+      background: #ffffff;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+    }
+    .sidebar-header {
+      padding: 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .sidebar-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 12px;
+    }
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .filter-input {
+      width: 100%;
+      padding: 8px 12px;
+      font-size: 13px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      outline: none;
+    }
+    .filter-input:focus {
+      border-color: #2563eb;
+    }
+    .zip-btn {
+      padding: 8px 14px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .zip-btn:hover {
+      background: #1d4ed8;
+    }
+    .reset-btn {
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+    .reset-btn:hover {
+      background: #e2e8f0;
+    }
+    .results-count {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+    }
 
-    // Remove row 1 if it contains header labels
-    const dataRows = rows.slice(1);
-    const events = [];
+    /* Events List */
+    .events-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
+    .event-card {
+      padding: 12px;
+      margin-bottom: 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #ffffff;
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .event-card:hover {
+      border-color: #93c5fd;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 4px;
+    }
+    .card-meta {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 2px;
+    }
+    .card-distance {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #2563eb;
+      background: #eff6ff;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-top: 4px;
+    }
 
-    // Zero-indexed column mappings:
-    // C=2, J=9, K=10, L=11, M=12, O=14, U=20
-    for (const row of dataRows) {
-      const colO = (row[14] || '').trim().toLowerCase();
-      const colU = (row[20] || '').trim().toLowerCase();
+    /* Map Canvas */
+    #map {
+      flex: 1;
+      height: 100%;
+      z-index: 1;
+    }
 
-      if (colO === 'no' && colU === 'no') {
-        continue;
+    /* Popup Styling */
+    .event-popup {
+      font-size: 14px;
+      line-height: 1.4;
+      max-width: 260px;
+    }
+    .popup-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 6px;
+    }
+    .popup-btn {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 6px 12px;
+      background-color: #2563eb;
+      color: #ffffff !important;
+      text-decoration: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Upcoming Events</div>
+
+        <!-- Keyword Search -->
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="searchInput" 
+            class="filter-input" 
+            placeholder="Search by name, organization..."
+          />
+        </div>
+
+        <!-- ZIP Code + Radius Search -->
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="zipInput" 
+            class="filter-input" 
+            placeholder="ZIP Code (e.g. 20001)"
+            maxlength="5"
+          />
+          <select id="radiusSelect" class="filter-input" style="width: 100px;">
+            <option value="10">10 mi</option>
+            <option value="25" selected>25 mi</option>
+            <option value="50">50 mi</option>
+            <option value="100">100 mi</option>
+          </select>
+          <button id="zipBtn" class="zip-btn">Find</button>
+          <button id="resetBtn" class="zip-btn reset-btn">Reset</button>
+        </div>
+
+        <div id="resultsCount" class="results-count">Loading events...</div>
+      </div>
+
+      <!-- Scrollable List -->
+      <div id="eventsList" class="events-list"></div>
+    </div>
+
+    <!-- Map Canvas -->
+    <div id="map"></div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    crossorigin=""
+  ></script>
+
+  <script>
+    // Initialize Map
+    const map = L.map('map').setView([39.8283, -98.5795], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let allEvents = [];
+    let currentEvents = [];
+    const markerMap = new Map();
+    const markerGroup = L.featureGroup().addTo(map);
+
+    // Haversine Distance Formula (miles)
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+      const R = 3958.8; // Earth radius in miles
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    function renderView(events) {
+      currentEvents = events;
+      markerGroup.clearLayers();
+      markerMap.clear();
+
+      const listContainer = document.getElementById('eventsList');
+      listContainer.innerHTML = '';
+
+      document.getElementById('resultsCount').innerText = `Showing ${events.length} event${events.length === 1 ? '' : 's'}`;
+
+      if (events.length === 0) {
+        listContainer.innerHTML = '<div style="padding: 16px; color: #64748b; font-size: 14px;">No events match your criteria.</div>';
+        return;
       }
 
-      const hostOrg = (row[2] || '').trim();
-      const dateInfo = (row[9] || '').trim();
-      const eventName = (row[10] || '').trim();
-      const timeInfo = (row[11] || '').trim();
-      const locationText = (row[12] || '').trim();
+      events.forEach((item, index) => {
+        // Marker & Popup
+        const marker = L.marker([item.lat, item.lon]);
+        const popupHtml = `
+          <div class="event-popup">
+            <div class="popup-title">${item.title}</div>
+            ${item.hostOrganization ? `<div><strong>Host:</strong> ${item.hostOrganization}</div>` : ''}
+            ${item.date || item.time ? `<div><strong>When:</strong> ${item.date} ${item.time}</div>` : ''}
+            ${item.address ? `<div><strong>Where:</strong> ${item.address}</div>` : ''}
+            ${item.browserUrl ? `<a class="popup-btn" href="${item.browserUrl}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : ''}
+          </div>
+        `;
+        marker.bindPopup(popupHtml);
+        markerGroup.addLayer(marker);
+        markerMap.set(index, marker);
 
-      if (!eventName || !locationText) {
-        continue;
+        // Sidebar Card
+        const card = document.createElement('div');
+        card.className = 'event-card';
+        card.innerHTML = `
+          <div class="card-title">${item.title}</div>
+          ${item.hostOrganization ? `<div class="card-meta">🏢 ${item.hostOrganization}</div>` : ''}
+          ${item.date || item.time ? `<div class="card-meta">📅 ${item.date} ${item.time}</div>` : ''}
+          ${item.address ? `<div class="card-meta">📍 ${item.address}</div>` : ''}
+          ${item.distance !== undefined ? `<div class="card-distance">${item.distance.toFixed(1)} miles away</div>` : ''}
+        `;
+
+        // Pan to marker on card click
+        card.addEventListener('click', () => {
+          map.setView([item.lat, item.lon], 14);
+          marker.openPopup();
+        });
+
+        listContainer.appendChild(card);
+      });
+
+      map.fitBounds(markerGroup.getBounds(), { padding: [40, 40], maxZoom: 14 });
+    }
+
+    // Keyword Filtering
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!q) {
+        renderView(allEvents);
+        return;
+      }
+      const filtered = allEvents.filter((item) => 
+        (item.title && item.title.toLowerCase().includes(q)) ||
+        (item.hostOrganization && item.hostOrganization.toLowerCase().includes(q)) ||
+        (item.address && item.address.toLowerCase().includes(q))
+      );
+      renderView(filtered);
+    });
+
+    // ZIP Code Lookup via Zippopotam.us (free public API)
+    document.getElementById('zipBtn').addEventListener('click', async () => {
+      const zip = document.getElementById('zipInput').value.trim();
+      const radius = parseFloat(document.getElementById('radiusSelect').value);
+
+      if (!/^\d{5}$/.test(zip)) {
+        alert('Please enter a valid 5-digit US ZIP code.');
+        return;
       }
 
       try {
-        const geoResponse = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`,
-          {
-            headers: {
-              'User-Agent': 'VEDMapIntegration/1.0 (contact@yourdomain.com)' // Required by OSM
-            }
-          }
-        );
-        const geoData = await geoResponse.json();
+        const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+        if (!res.ok) throw new Error('ZIP not found');
+        const data = await res.json();
+        
+        const zipLat = parseFloat(data.places[0].latitude);
+        const zipLon = parseFloat(data.places[0].longitude);
 
-        if (!geoData || geoData.length === 0) {
-          console.warn(`Could not geocode: ${locationText}`);
-          continue;
-        }
+        // Calculate distance and filter
+        const withinRadius = allEvents
+          .map((ev) => {
+            const distance = calculateDistance(zipLat, zipLon, ev.lat, ev.lon);
+            return { ...ev, distance };
+          })
+          .filter((ev) => ev.distance <= radius)
+          .sort((a, b) => a.distance - b.distance);
 
-        const geo = geoData[0];
-        const showRegLink = (colO === 'yes' && colU === 'yes') ? (row[14] || '').trim() : '';
-
-        events.push({
-          id: eventName,
-          title: eventName,
-          hostOrganization: hostOrg,
-          date: dateInfo,
-          time: timeInfo,
-          description: `${hostOrg} - ${dateInfo} ${timeInfo}`,
-          address: locationText,
-          city: '',
-          state: '',
-          zip: '',
-          lat: parseFloat(geo.lat),
-          lon: parseFloat(geo.lon),
-          browserUrl: showRegLink
-        });
-      } catch (geoError) {
-        console.error(`Geocoding error for ${locationText}:`, geoError);
+        renderView(withinRadius);
+      } catch (err) {
+        alert('Could not locate ZIP code. Please try another.');
       }
-    }
-
-    res.status(200).json({
-      count: events.length,
-      data: events
     });
 
-  } catch (error) {
-    console.error('API Error:', error);
-    res.status(500).json({ error: error.message });
-  }
-};
+    // Reset Filters
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('zipInput').value = '';
+      allEvents.forEach((ev) => delete ev.distance);
+      renderView(allEvents);
+    });
+
+    // Initial Fetch
+    fetch('/api/get-mobilize-events')
+      .then((res) => res.json())
+      .then((response) => {
+        allEvents = response.data || [];
+        renderView(allEvents);
+      })
+      .catch((err) => {
+        console.error(err);
+        document.getElementById('resultsCount').innerText = 'Failed to load events.';
+      });
+  </script>
+</body>
+</html>
