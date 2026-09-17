@@ -97,8 +97,7 @@
           event.description && `<strong>Details:</strong><br>${escapeHtml(event.description).replace(/\n/g, '<br>')}`,
           event.distance !== null && event.distance !== undefined && `<strong>Distance:</strong> ${event.distance.toFixed(1)} miles away`
         ].filter(Boolean).join('<br>');
-        const rsvpLink = event.browserUrl ? `<br><a href="${escapeHtml(event.browserUrl)}" target="_blank" rel="noopener noreferrer">RSVP / Details</a>` : '';
-        const marker = L.marker([event.lat, event.lon]).bindPopup(`<div class="event-popup"><strong>${escapeHtml(event.title)}</strong><br>${details}${rsvpLink}</div>`);
+        const marker = L.marker([event.lat, event.lon]).bindPopup(`<div class="event-popup"><strong>${escapeHtml(event.title)}</strong><br>${details}</div>`);
         markerLayer.addLayer(marker);
         const card = document.createElement('article');
         card.className = 'event-card';
