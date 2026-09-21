@@ -22,7 +22,12 @@ module.exports = async (req, res) => {
     }
 
     const csvText = await response.text();
-    const records = parse(csvText, {
+    const lines = csvText.split('\n');
+    
+    // Skip first row (column letters), use second row as headers
+    const csvWithCorrectHeaders = lines.slice(1).join('\n');
+    
+    const records = parse(csvWithCorrectHeaders, {
       columns: true,
       skip_empty_lines: true
     });
