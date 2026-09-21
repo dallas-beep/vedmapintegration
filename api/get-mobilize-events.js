@@ -16,98 +16,95 @@ module.exports = async (req, res) => {
     const GID = '1581051441';
     const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
-    console.log('Fetching:', csvUrl);
-    
     const response = await fetch(csvUrl);
     if (!response.ok) {
-      throw new Error(`Failed to fetch sheet: ${response.status}`);
+      return res.status(500).json({ error: 'Failed to fetch sheet' });
     }
 
     const csvText = await response.text();
-    console.log('CSV received, length:', csvText.length);
+    
+    // Parse as arrays (no headers) to avoid quote parsing issues
+    const rows = parse(csvText, {
+      columns: false,
+      skip_empty_lines: true
+    });
 
-    try {
-      const lines = csvText.split('\n');
-      console.log('Total lines:', lines.length);
-      
-      // Skip first row (column letters), use second row as headers
-      const csvWithCorrectHeaders = lines.slice(1).join('\n');
-      
-      const records = parse(csvWithCorrectHeaders, {
-        columns: true,
-        skip_empty_lines: true
-      });
+    // Skip first 2 rows (column letters + broken headers)
+    // Data starts at row 2
+    const dataRows = rows.slice(2);
+    const events = [];
 
-      console.log('Parsed records count:', records.length);
+    for (const row of dataRows) {
+      try {
+        // Column indices based on Google Form structure
+        // 2 = Organization
+        // 11 = Event/activity name
+        // 12 = Start time / End time
+        // 13 = Location
+        // 14 = Is this event open to the public?
+        // 15 = Event registration link
 
-      const events = [];
+        const hostOrg = (row[2] || '').trim();
+        const eventName = (row[11] || '').trim();
+        const timeInfo = (row[12] || '').trim();
+        const locationText = (row[13] || '').trim();
+        const isPublic = (row[14] || '').trim().toLowerCase();
+        const registrationLink = (row[15] || '').trim();
 
-      for (const record of records) {
-        try {
-          const eventName = record['Event/activity name'] ? record['Event/activity name'].trim() : '';
-          const hostOrg = record['What organization do you represent?'] ? record['What organization do you represent?'].trim() : '';
-          let timeInfo = record['Start time / End time'] ? record['Start time / End time'].trim() : '';
-          const locationText = record['Location of the event (please include State/County)'] ? record['Location of the event (please include State/County)'].trim() : '';
-          const isPublic = record['Is this event open to the public?'] ? record['Is this event open to the public?'].trim().toLowerCase() : '';
-          const registrationLink = record['Event registration link'] ? record['Event registration link'].trim() : '';
-
-          if (!eventName || !locationText) {
-            continue;
-          }
-
-          if (isPublic !== 'yes') {
-            continue;
-          }
-
-          if (timeInfo.toUpperCase() === 'TBD' || timeInfo.toUpperCase() === 'TBA') {
-            timeInfo = 'Coming Soon...';
-          }
-
-          const geoResponse = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`
-          );
-          const geoData = await geoResponse.json();
-
-          if (!geoData || geoData.length === 0) {
-            console.warn(`Could not geocode: ${locationText}`);
-            continue;
-          }
-
-          const geo = geoData[0];
-
-          events.push({
-            id: eventName,
-            title: eventName,
-            hostOrganization: hostOrg,
-            date: 'October 24, 2026',
-            time: timeInfo,
-            description: `${hostOrg} - October 24, 2026 ${timeInfo}`,
-            address: locationText,
-            city: '',
-            state: '',
-            zip: '',
-            lat: parseFloat(geo.lat),
-            lon: parseFloat(geo.lon),
-            browserUrl: registrationLink
-          });
-        } catch (rowError) {
-          console.error('Row error:', rowError.message);
+        // Must have event name, location, and be public
+        if (!eventName || !locationText || isPublic !== 'yes') {
+          continue;
         }
+
+        // Try to geocode
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`
+        );
+        
+        if (!geoResponse.ok) {
+          continue;
+        }
+
+        const geoData = await geoResponse.json();
+        
+        if (!Array.isArray(geoData) || geoData.length === 0) {
+          continue;
+        }
+
+        const geo = geoData[0];
+        const lat = parseFloat(geo.lat);
+        const lon = parseFloat(geo.lon);
+
+        if (isNaN(lat) || isNaN(lon)) {
+          continue;
+        }
+
+        events.push({
+          id: eventName,
+          title: eventName,
+          hostOrganization: hostOrg,
+          date: 'October 24, 2026',
+          time: timeInfo || 'TBD',
+          description: `${hostOrg} - October 24, 2026`,
+          address: locationText,
+          city: '',
+          state: '',
+          zip: '',
+          lat: lat,
+          lon: lon,
+          browserUrl: registrationLink
+        });
+      } catch (e) {
+        continue;
       }
-
-      console.log('Total events found:', events.length);
-      res.status(200).json({
-        count: events.length,
-        data: events
-      });
-
-    } catch (parseError) {
-      console.error('Parse error:', parseError.message);
-      throw parseError;
     }
 
+    return res.status(200).json({
+      count: events.length,
+      data: events
+    });
+
   } catch (error) {
-    console.error('API Error:', error.message);
-    res.status(500).json({ error: error.message, stack: error.stack });
+    return res.status(500).json({ error: error.message });
   }
 };
