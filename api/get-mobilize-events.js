@@ -22,37 +22,20 @@ module.exports = async (req, res) => {
     }
 
     const csvText = await response.text();
-    const rows = parse(csvText, {
-      columns: false,
+    const records = parse(csvText, {
+      columns: true,
       skip_empty_lines: true
     });
 
-    if (!rows || rows.length < 20) {
-      return res.status(200).json({ count: 0, data: [] });
-    }
-
     const events = [];
 
-    // Skip header rows (rows 0-14), start with data at row 15+
-    for (let i = 15; i < rows.length; i++) {
-      const row = rows[i];
-      
-      // Column indices (0-indexed):
-      // 2 = Organization
-      // 3 = City/State
-      // 11 = Event name (Are you hosting a Vote Early Day...)
-      // 12 = Event/activity name
-      // 13 = Start time / End time
-      // 14 = Location
-      // 15 = Is this event open to the public?
-      // 16 = Event registration link
-
-      const eventName = (row[12] || '').trim();
-      const hostOrg = (row[2] || '').trim();
-      let timeInfo = (row[13] || '').trim();
-      const locationText = (row[14] || '').trim();
-      const isPublic = (row[15] || '').trim().toLowerCase();
-      const registrationLink = (row[16] || '').trim();
+    for (const record of records) {
+      const eventName = record['Event/activity name'] ? record['Event/activity name'].trim() : '';
+      const hostOrg = record['What organization do you represent?'] ? record['What organization do you represent?'].trim() : '';
+      let timeInfo = record['Start time / End time'] ? record['Start time / End time'].trim() : '';
+      const locationText = record['Location of the event (please include State/County)'] ? record['Location of the event (please include State/County)'].trim() : '';
+      const isPublic = record['Is this event open to the public?'] ? record['Is this event open to the public?'].trim().toLowerCase() : '';
+      const registrationLink = record['Event registration link'] ? record['Event registration link'].trim() : '';
 
       // Skip if not public
       if (isPublic !== 'yes') {
