@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const { parse } = require('csv-parse/sync');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -22,26 +21,28 @@ module.exports = async (req, res) => {
     }
 
     const csvText = await response.text();
-    const records = parse(csvText, {
-      columns: true,
-      skip_empty_lines: true
-    });
-
+    const lines = csvText.split('\n');
+    
+    // Skip rows 0-2 (title, column letters, headers)
+    // Start with row 3 (actual data)
     const events = [];
 
-    for (const record of records) {
-      const eventName = (record['Event/activity name'] || '').trim();
-      const hostOrg = (record['What organization do you represent?'] || '').trim();
-      const timeInfo = (record['Start time / End time'] || '').trim();
-      const locationText = (record['Location of the event (please include State/County)'] || '').trim();
-      const isPublic = (record['Is this event open to the public?'] || '').trim().toLowerCase();
-      const registrationLink = (record['Event registration link'] || '').trim();
-
-      if (!eventName || !locationText || isPublic !== 'yes') {
-        continue;
-      }
-
+    for (let i = 3; i < lines.length; i++) {
       try {
+        const cols = lines[i].split(',');
+        if (cols.length < 16) continue;
+
+        const hostOrg = (cols[2] || '').trim().replace(/^"|"$/g, '');
+        const eventName = (cols[11] || '').trim().replace(/^"|"$/g, '');
+        const timeInfo = (cols[12] || '').trim().replace(/^"|"$/g, '');
+        const locationText = (cols[13] || '').trim().replace(/^"|"$/g, '');
+        const isPublic = (cols[14] || '').trim().toLowerCase().replace(/^"|"$/g, '');
+        const registrationLink = (cols[15] || '').trim().replace(/^"|"$/g, '');
+
+        if (!eventName || !locationText || isPublic !== 'yes') {
+          continue;
+        }
+
         const geoResponse = await fetch(
           `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}`
         );
