@@ -18,7 +18,7 @@ const comingSoon = (value) => {
     : text;
 };
 
-const isPublicEvent = (value) => /^(yes|y|open|public|available)$/i.test(clean(value));
+const isPublicEvent = (value) => /^yes/i.test(clean(value));
 const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon)
   && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
 
@@ -41,19 +41,24 @@ async function geocode(value, cache) {
   if (!search) return null;
   if (cache.has(search)) return cache.get(search);
 
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(search)}`,
-    { headers: { 'User-Agent': USER_AGENT } }
-  );
-  if (!response.ok) return null;
-  const results = await response.json();
-  if (!results[0]) return null;
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(search)}`,
+      { headers: { 'User-Agent': USER_AGENT } }
+    );
+    if (!response.ok) return null;
+    const results = await response.json();
+    if (!results[0]) return null;
 
-  const lat = Number(results[0].lat);
-  const lon = Number(results[0].lon);
-  const coordinates = validCoordinates(lat, lon) ? { lat, lon } : null;
-  cache.set(search, coordinates);
-  return coordinates;
+    const lat = Number(results[0].lat);
+    const lon = Number(results[0].lon);
+    const coordinates = validCoordinates(lat, lon) ? { lat, lon } : null;
+    cache.set(search, coordinates);
+    return coordinates;
+  } catch (e) {
+    cache.set(search, null);
+    return null;
+  }
 }
 
 module.exports = async (req, res) => {
@@ -77,28 +82,30 @@ module.exports = async (req, res) => {
     });
     if (!rows.length) throw new Error('The Google Sheet returned no rows');
 
-    // The response sheet includes title/letter rows before its header row.
-    // Locate the header instead of relying on a fixed row number.
-    const headerIndex = rows.findIndex((row) => row.some((cell) =>
-      /event|title|location|public|organization/i.test(clean(cell))
-    ));
-    const headers = headerIndex >= 0 ? rows[headerIndex] : [];
-    const firstDataRow = headerIndex >= 0 ? headerIndex + 1 : 0;
+    // Find header row by looking for key column names
+    const headerIndex = rows.findIndex((row) => {
+      const rowText = row.join('|').toLowerCase();
+      return rowText.includes('event') && (rowText.includes('organization') || rowText.includes('location'));
+    });
+    
+    if (headerIndex === -1) throw new Error('Could not find header row');
+    
+    const headers = rows[headerIndex];
+    const firstDataRow = headerIndex + 1;
 
-    // Header matching handles renamed columns; the fallbacks preserve the
-    // established form layout (C, K, L, M, N, O, P, R, Y).
-    const hostColumn = findColumn(headers, [/host/, /organization/], 2);
-    const dateColumn = findColumn(headers, [/date/], 10);
-    const titleColumn = findColumn(headers, [/event.*name/, /^title$/, /event/], 11);
-    const timeColumn = findColumn(headers, [/time/], 12);
-    const locationColumn = findColumn(headers, [/location/, /address/], 13);
-    const publicColumn = findColumn(headers, [/public/, /visibility/, /available/], 14);
-    const urlColumn = findColumn(headers, [/registration/, /browser/, /url/, /link/], 15);
-    const descriptionColumn = findColumn(headers, [/description/, /details/], 17);
-    const zipColumn = findColumn(headers, [/zip/, /postal/], 24);
+    // Find columns by exact header names
+    const hostColumn = findColumn(headers, [/what organization do you represent/i, /organization/i], 2);
+    const dateColumn = findColumn(headers, [/date/i], 9);
+    const titleColumn = findColumn(headers, [/event\/activity name/i, /event.*name/i], 11);
+    const timeColumn = findColumn(headers, [/start time.*end time/i, /time/i], 12);
+    const locationColumn = findColumn(headers, [/location.*state\/county/i, /location/i, /address/i], 13);
+    const publicColumn = findColumn(headers, [/is this event open to the public/i, /public/i], 14);
+    const urlColumn = findColumn(headers, [/event registration link/i, /registration/i, /link/i], 15);
+    const descriptionColumn = findColumn(headers, [/event description/i, /description/i], 17);
+    const zipColumn = findColumn(headers, [/zipcode/i, /zip/i], 7);
 
     const events = [];
-    let skipped = 0;
+    const skipReasons = {};
     const geocodeCache = new Map();
 
     for (let index = firstDataRow; index < rows.length; index += 1) {
@@ -113,16 +120,24 @@ module.exports = async (req, res) => {
       const description = comingSoon(row[descriptionColumn]);
       const zip = clean(row[zipColumn]);
 
-      if (!title || !isPublicEvent(publicAnswer)) {
-        skipped += 1;
+      // Skip if no title
+      if (!title) {
+        skipReasons['no_title'] = (skipReasons['no_title'] || 0) + 1;
         continue;
       }
 
-      // Prefer the complete location; fall back to ZIP when only ZIP is supplied.
-      const coordinates = await geocode(location || zip, geocodeCache)
+      // Skip if not public (accept "Yes", "yes", "Yes, this event is open...", etc)
+      if (!isPublicEvent(publicAnswer)) {
+        skipReasons['not_public'] = (skipReasons['not_public'] || 0) + 1;
+        continue;
+      }
+
+      // Try to geocode location first, then fallback to ZIP
+      const coordinates = await geocode(location, geocodeCache)
         || await geocode(zip, geocodeCache);
+      
       if (!coordinates) {
-        skipped += 1;
+        skipReasons['geocode_failed'] = (skipReasons['geocode_failed'] || 0) + 1;
         continue;
       }
 
@@ -143,7 +158,12 @@ module.exports = async (req, res) => {
       });
     }
 
-    return res.status(200).json({ source: SHEET_CSV_URL, count: events.length, skipped, data: events });
+    return res.status(200).json({ 
+      source: SHEET_CSV_URL, 
+      count: events.length, 
+      skipReasons,
+      data: events 
+    });
   } catch (error) {
     console.error('Error loading Google Sheet events:', error);
     return res.status(500).json({ error: error.message, data: [] });
