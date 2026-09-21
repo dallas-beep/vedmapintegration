@@ -22,28 +22,16 @@ const isPublicEvent = (value) => /^yes/i.test(clean(value));
 const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon)
   && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 async function geocode(value, cache) {
   const search = clean(value);
   if (!search || search.length < 2) return null;
   if (cache.has(search)) return cache.get(search);
 
   try {
-    await delay(250); // Rate limit - 250ms between requests
-    
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-    
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(search)}`,
-      { 
-        headers: { 'User-Agent': USER_AGENT },
-        signal: controller.signal
-      }
+      { headers: { 'User-Agent': USER_AGENT } }
     );
-    
-    clearTimeout(timeout);
     
     if (!response.ok) {
       cache.set(search, null);
@@ -84,9 +72,8 @@ module.exports = async (req, res) => {
       trim: true
     });
 
-    if (!rows.length) throw new Error('The Google Sheet returned no rows');
+    if (!rows.length) throw new Error('No rows');
 
-    const headers = rows[0];
     const events = [];
     const skipReasons = {};
     const geocodeCache = new Map();
@@ -100,3 +87,58 @@ module.exports = async (req, res) => {
       const time = comingSoon(row[12]);
       const location = comingSoon(row[13]);
       const publicAnswer = clean(row[14]);
+      const browserUrl = comingSoon(row[15]);
+      const description = comingSoon(row[17]);
+      const zip = clean(row[7]);
+      const cityState = clean(row[3]); // City and state
+
+      if (!title) {
+        skipReasons['no_title'] = (skipReasons['no_title'] || 0) + 1;
+        continue;
+      }
+
+      if (!isPublicEvent(publicAnswer)) {
+        skipReasons['not_public'] = (skipReasons['not_public'] || 0) + 1;
+        continue;
+      }
+
+      // Try: location → city/state → ZIP
+      let coordinates = await geocode(location, geocodeCache);
+      if (!coordinates && cityState) {
+        coordinates = await geocode(cityState, geocodeCache);
+      }
+      if (!coordinates && zip) {
+        coordinates = await geocode(zip, geocodeCache);
+      }
+      
+      if (!coordinates) {
+        skipReasons['geocode_failed'] = (skipReasons['geocode_failed'] || 0) + 1;
+        continue;
+      }
+
+      events.push({
+        id: `${index}-${title}`,
+        title,
+        hostOrganization,
+        date: dateValue,
+        time,
+        description,
+        address: location,
+        browserUrl,
+        city: '',
+        state: '',
+        zip,
+        lat: coordinates.lat,
+        lon: coordinates.lon
+      });
+    }
+
+    return res.status(200).json({ 
+      count: events.length, 
+      skipReasons,
+      data: events 
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message, data: [] });
+  }
+};
