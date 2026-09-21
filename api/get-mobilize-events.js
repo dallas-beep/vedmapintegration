@@ -30,17 +30,19 @@ module.exports = async (req, res) => {
     const events = [];
 
     for (const record of records) {
-      const eventName = record.K ? record.K.trim() : '';
-      const hostOrg = record.C ? record.C.trim() : '';
-      let dateInfo = record.J ? record.J.trim() : '';
-      let timeInfo = record.L ? record.L.trim() : '';
-      const locationText = record.M ? record.M.trim() : '';
-      const registrationLink = record.O ? record.O.trim() : '';
+      const eventName = record['Event/activity name'] ? record['Event/activity name'].trim() : '';
+      const hostOrg = record['What organization do you represent?'] ? record['What organization do you represent?'].trim() : '';
+      let timeInfo = record['Start time / End time'] ? record['Start time / End time'].trim() : '';
+      const locationText = record['Location of the event (please include State/County)'] ? record['Location of the event (please include State/County)'].trim() : '';
+      const isPublic = record['Is this event open to the public?'] ? record['Is this event open to the public?'].trim().toLowerCase() : '';
+      const registrationLink = record['Event registration link'] ? record['Event registration link'].trim() : '';
+
+      // Skip if not public
+      if (isPublic !== 'yes') {
+        continue;
+      }
 
       // Replace TBD/TBA with "Coming Soon..."
-      if (dateInfo.toUpperCase() === 'TBD' || dateInfo.toUpperCase() === 'TBA') {
-        dateInfo = 'Coming Soon...';
-      }
       if (timeInfo.toUpperCase() === 'TBD' || timeInfo.toUpperCase() === 'TBA') {
         timeInfo = 'Coming Soon...';
       }
@@ -66,9 +68,9 @@ module.exports = async (req, res) => {
           id: eventName,
           title: eventName,
           hostOrganization: hostOrg,
-          date: dateInfo,
+          date: 'October 24, 2026',
           time: timeInfo,
-          description: `${hostOrg} - ${dateInfo} ${timeInfo}`,
+          description: `${hostOrg} - October 24, 2026 ${timeInfo}`,
           address: locationText,
           city: '',
           state: '',
