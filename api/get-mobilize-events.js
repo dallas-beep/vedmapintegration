@@ -22,20 +22,39 @@ const isPublicEvent = (value) => /^yes/i.test(clean(value));
 const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon)
   && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function geocode(value, cache) {
   const search = clean(value);
   if (!search || search.length < 2) return null;
   if (cache.has(search)) return cache.get(search);
 
   try {
+    await delay(250); // Rate limit - 250ms between requests
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(search)}`,
-      { headers: { 'User-Agent': USER_AGENT } }
+      { 
+        headers: { 'User-Agent': USER_AGENT },
+        signal: controller.signal
+      }
     );
-    if (!response.ok) return null;
+    
+    clearTimeout(timeout);
+    
+    if (!response.ok) {
+      cache.set(search, null);
+      return null;
+    }
     
     const results = await response.json();
-    if (!results[0]) return null;
+    if (!results[0]) {
+      cache.set(search, null);
+      return null;
+    }
 
     const lat = Number(results[0].lat);
     const lon = Number(results[0].lon);
@@ -67,78 +86,17 @@ module.exports = async (req, res) => {
 
     if (!rows.length) throw new Error('The Google Sheet returned no rows');
 
-    // Headers are in row 0
     const headers = rows[0];
-
     const events = [];
     const skipReasons = {};
     const geocodeCache = new Map();
 
-    // Data starts at row 1
     for (let index = 1; index < rows.length; index += 1) {
       const row = rows[index] || [];
       
-      const title = comingSoon(row[11]); // Event/activity name
-      const hostOrganization = comingSoon(row[2]); // What organization do you represent?
-      const dateValue = comingSoon(row[10]); // Are you hosting a Vote Early Day...
-      const time = comingSoon(row[12]); // Start time / End time
-      const location = comingSoon(row[13]); // Location of the event
-      const publicAnswer = clean(row[14]); // Is this event open to the public?
-      const browserUrl = comingSoon(row[15]); // Event registration link
-      const description = comingSoon(row[17]); // Event description
-      const zip = clean(row[7]); // Zipcode
-
-      // Skip if no title
-      if (!title) {
-        skipReasons['no_title'] = (skipReasons['no_title'] || 0) + 1;
-        continue;
-      }
-
-      // Skip if not public (only accept "yes" answers)
-      if (!isPublicEvent(publicAnswer)) {
-        skipReasons['not_public'] = (skipReasons['not_public'] || 0) + 1;
-        continue;
-      }
-
-      // Try to geocode location, then city/state, then ZIP
-      let coordinates = await geocode(location, geocodeCache);
-      if (!coordinates) {
-        coordinates = await geocode(row[3], geocodeCache); // City and state
-      }
-      if (!coordinates) {
-        coordinates = await geocode(zip, geocodeCache); // Zipcode
-      }
-      
-      if (!coordinates) {
-        skipReasons['geocode_failed'] = (skipReasons['geocode_failed'] || 0) + 1;
-        continue;
-      }
-
-      events.push({
-        id: `${index}-${title}`,
-        title,
-        hostOrganization,
-        date: dateValue,
-        time,
-        description,
-        address: location,
-        browserUrl,
-        city: '',
-        state: '',
-        zip,
-        lat: coordinates.lat,
-        lon: coordinates.lon
-      });
-    }
-
-    return res.status(200).json({ 
-      source: SHEET_CSV_URL, 
-      count: events.length, 
-      skipReasons,
-      data: events 
-    });
-  } catch (error) {
-    console.error('Error loading Google Sheet events:', error);
-    return res.status(500).json({ error: error.message, data: [] });
-  }
-};
+      const title = comingSoon(row[11]);
+      const hostOrganization = comingSoon(row[2]);
+      const dateValue = comingSoon(row[10]);
+      const time = comingSoon(row[12]);
+      const location = comingSoon(row[13]);
+      const publicAnswer = clean(row[14]);
