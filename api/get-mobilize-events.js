@@ -11,6 +11,43 @@ const clean = (value) => String(value ?? '')
   .replace(/\r/g, '')
   .trim();
 
+const comingSoon = (value) => {
+  const text = clean(value);
+  return /\b(?:TBA|TBD)\b/gi.test(text)
+    ? text.replace(/\b(?:TBA|TBD)\b/gi, 'Coming Soon')
+    : text;
+};
+
+const isPublicEvent = (value) => /^yes/i.test(clean(value));
+const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon)
+  && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
+
+async function geocode(value, cache) {
+  const search = clean(value);
+  if (!search || search.length < 2) return null;
+  if (cache.has(search)) return cache.get(search);
+
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(search)}`,
+      { headers: { 'User-Agent': USER_AGENT } }
+    );
+    if (!response.ok) return null;
+    
+    const results = await response.json();
+    if (!results[0]) return null;
+
+    const lat = Number(results[0].lat);
+    const lon = Number(results[0].lon);
+    const coordinates = validCoordinates(lat, lon) ? { lat, lon } : null;
+    cache.set(search, coordinates);
+    return coordinates;
+  } catch (e) {
+    cache.set(search, null);
+    return null;
+  }
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -28,24 +65,80 @@ module.exports = async (req, res) => {
       trim: true
     });
 
-    const headerIndex = rows.findIndex((row) => {
-      const rowText = row.join('|').toLowerCase();
-      return rowText.includes('event') && (rowText.includes('organization') || rowText.includes('location'));
-    });
-    
-    const headers = rows[headerIndex];
+    if (!rows.length) throw new Error('The Google Sheet returned no rows');
+
+    // Headers are in row 0
+    const headers = rows[0];
+
+    const events = [];
+    const skipReasons = {};
+    const geocodeCache = new Map();
+
+    // Data starts at row 1
+    for (let index = 1; index < rows.length; index += 1) {
+      const row = rows[index] || [];
+      
+      const title = comingSoon(row[11]); // Event/activity name
+      const hostOrganization = comingSoon(row[2]); // What organization do you represent?
+      const dateValue = comingSoon(row[10]); // Are you hosting a Vote Early Day...
+      const time = comingSoon(row[12]); // Start time / End time
+      const location = comingSoon(row[13]); // Location of the event
+      const publicAnswer = clean(row[14]); // Is this event open to the public?
+      const browserUrl = comingSoon(row[15]); // Event registration link
+      const description = comingSoon(row[17]); // Event description
+      const zip = clean(row[7]); // Zipcode
+
+      // Skip if no title
+      if (!title) {
+        skipReasons['no_title'] = (skipReasons['no_title'] || 0) + 1;
+        continue;
+      }
+
+      // Skip if not public (only accept "yes" answers)
+      if (!isPublicEvent(publicAnswer)) {
+        skipReasons['not_public'] = (skipReasons['not_public'] || 0) + 1;
+        continue;
+      }
+
+      // Try to geocode location, then city/state, then ZIP
+      let coordinates = await geocode(location, geocodeCache);
+      if (!coordinates) {
+        coordinates = await geocode(row[3], geocodeCache); // City and state
+      }
+      if (!coordinates) {
+        coordinates = await geocode(zip, geocodeCache); // Zipcode
+      }
+      
+      if (!coordinates) {
+        skipReasons['geocode_failed'] = (skipReasons['geocode_failed'] || 0) + 1;
+        continue;
+      }
+
+      events.push({
+        id: `${index}-${title}`,
+        title,
+        hostOrganization,
+        date: dateValue,
+        time,
+        description,
+        address: location,
+        browserUrl,
+        city: '',
+        state: '',
+        zip,
+        lat: coordinates.lat,
+        lon: coordinates.lon
+      });
+    }
 
     return res.status(200).json({ 
-      debug: {
-        headerIndex,
-        headers: headers,
-        firstDataRow: rows[headerIndex + 1],
-        secondDataRow: rows[headerIndex + 2]
-      },
-      data: []
+      source: SHEET_CSV_URL, 
+      count: events.length, 
+      skipReasons,
+      data: events 
     });
-
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    console.error('Error loading Google Sheet events:', error);
+    return res.status(500).json({ error: error.message, data: [] });
   }
 };
