@@ -18,7 +18,8 @@ const comingSoon = (value) => {
     : text;
 };
 
-const isPublicEvent = (value) => /^yes/i.test(clean(value));
+const isYes = (value) => /^yes/i.test(clean(value));
+const isNo = (value) => /^no/i.test(clean(value));
 const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon)
   && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
 
@@ -81,32 +82,35 @@ module.exports = async (req, res) => {
     for (let index = 1; index < rows.length; index += 1) {
       const row = rows[index] || [];
       
-      const title = comingSoon(row[11]);
-      const hostOrganization = comingSoon(row[2]);
-      const dateValue = comingSoon(row[10]);
-      const time = comingSoon(row[12]);
-      const location = comingSoon(row[13]);
-      const publicAnswer = clean(row[14]);
-      const browserUrl = comingSoon(row[15]);
-      const description = comingSoon(row[17]);
-      const zip = clean(row[7]);
-      const cityState = clean(row[3]); // City and state
+      const hostOrganization = comingSoon(row[2]); // Column C
+      const cityState = comingSoon(row[3]); // Column D
+      const zip = clean(row[7]); // Column H
+      const date = comingSoon(row[11]); // Column L
+      const title = comingSoon(row[12]); // Column M - Event/Activity name
+      const time = comingSoon(row[13]); // Column N - Start and End Time
+      const displayAnswer = clean(row[15]); // Column P - "YES" to display
+      const description = comingSoon(row[19]); // Column T - Details
+      const hideAnswer = clean(row[21]); // Column V - "NO" means hide
 
       if (!title) {
         skipReasons['no_title'] = (skipReasons['no_title'] || 0) + 1;
         continue;
       }
 
-      if (!isPublicEvent(publicAnswer)) {
-        skipReasons['not_public'] = (skipReasons['not_public'] || 0) + 1;
+      // Column P must be "YES"
+      if (!isYes(displayAnswer)) {
+        skipReasons['not_yes_in_p'] = (skipReasons['not_yes_in_p'] || 0) + 1;
         continue;
       }
 
-      // Try: location → city/state → ZIP
-      let coordinates = await geocode(location, geocodeCache);
-      if (!coordinates && cityState) {
-        coordinates = await geocode(cityState, geocodeCache);
+      // Column V must not be "NO"
+      if (isNo(hideAnswer)) {
+        skipReasons['no_in_v'] = (skipReasons['no_in_v'] || 0) + 1;
+        continue;
       }
+
+      // Try to geocode: city/state first, then ZIP
+      let coordinates = await geocode(cityState, geocodeCache);
       if (!coordinates && zip) {
         coordinates = await geocode(zip, geocodeCache);
       }
@@ -120,11 +124,11 @@ module.exports = async (req, res) => {
         id: `${index}-${title}`,
         title,
         hostOrganization,
-        date: dateValue,
+        date,
         time,
         description,
-        address: location,
-        browserUrl,
+        address: cityState,
+        browserUrl: '',
         city: '',
         state: '',
         zip,
