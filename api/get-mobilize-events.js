@@ -22,44 +22,61 @@ module.exports = async (req, res) => {
     }
 
     const csvText = await response.text();
-    const records = parse(csvText, { columns: true, skip_empty_lines: true });
+    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
 
     const events = [];
 
-    for (const record of records) {
-      const title = record['Event/activity name'] ? record['Event/activity name'].trim() : '';
-      const org = record['What organization do you represent?'] ? record['What organization do you represent?'].trim() : '';
-      let time = record['Start time / End time'] ? record['Start time / End time'].trim() : '';
-      const location = record['Location of the event (please include State/County)'] ? record['Location of the event (please include State/County)'].trim() : '';
-      const canPromote = record['Can we promote your event?'] ? record['Can we promote your event?'].trim().toLowerCase() : '';
-      const regLink = record['Event registration link'] ? record['Event registration link'].trim() : '';
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
 
-      if (!title || !location) continue;
-      if (canPromote !== 'yes') continue;
+      const org = (row[2] || '').trim();
+      const zip = (row[7] || '').trim();
+      let date = (row[11] || '').trim();
+      const activityName = (row[12] || '').trim();
+      let time = (row[13] || '').trim();
+      const location = (row[14] || '').trim();
+      const canDisplay = (row[15] || '').trim().toLowerCase();
+      let description = (row[19] || '').trim();
+      const canSharePublic = (row[21] || '').trim().toLowerCase();
 
+      // Filter checks
+      if (canDisplay !== 'yes') continue;
+      if (canSharePublic !== 'yes') continue;
+      if (!activityName || !location) continue;
+
+      // Replace TBD/TBA with Coming Soon
+      if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') {
+        date = 'Coming Soon';
+      }
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') {
-        time = 'Coming Soon...';
+        time = 'Coming Soon';
+      }
+      if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') {
+        description = 'Coming Soon';
       }
 
+      // Geocode by zip code
       try {
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`);
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}+USA`);
         const geoData = await geoRes.json();
         if (!geoData || !geoData[0]) continue;
 
         const geo = geoData[0];
         events.push({
-          id: title,
-          title: title,
+          id: activityName,
+          title: activityName,
           hostOrganization: org,
-          date: 'October 24, 2026',
+          date: date,
           time: time,
+          description: description,
           address: location,
+          zip: zip,
           lat: parseFloat(geo.lat),
-          lon: parseFloat(geo.lon),
-          browserUrl: regLink
+          lon: parseFloat(geo.lon)
         });
       } catch (e) {
-        console.error(`Geocode error: ${location}`);
+        console.error(`Geocode error for zip ${zip}:`, e.message);
       }
     }
 
