@@ -52,19 +52,19 @@
       header h1 { font-size: 15px; margin-bottom: 8px; line-height: 1.1; }
       .header-buttons { gap: 6px; }
       .header-buttons a { padding: 8px 12px; font-size: 10px; }
-      .layout { grid-template-columns: 1fr; min-height: 0; height: 100vh; }
-      .sidebar { max-height: 25vh; padding: 8px; gap: 6px; overflow-y: auto; }
-      .controls { padding: 8px; border-radius: 8px; }
-      .search { padding: 8px 10px; font-size: 11px; border-radius: 5px; margin-bottom: 6px; }
-      .control-row { gap: 4px; margin-top: 0; }
-      select, .location-button { padding: 7px 8px; font-size: 10px; border-radius: 5px; }
-      h2 { font-size: 12px; margin: 2px 0; }
-      .event-list { gap: 4px; min-height: 0; }
-      .event-card { padding: 8px; border-radius: 8px; }
-      .event-card h3 { font-size: 10px; margin-bottom: 2px; line-height: 1.2; }
-      .event-card p { font-size: 8px; margin: 1px 0; line-height: 1.2; }
-      .status { padding: 6px 8px; font-size: 9px; }
-      #map { height: 75vh; }
+      .layout { display: grid; grid-template-columns: 100px 1fr; gap: 0; min-height: calc(100vh - 70px); }
+      .sidebar { padding: 8px; gap: 6px; overflow-y: auto; overflow-x: hidden; max-width: 100px; }
+      .controls { padding: 6px; border-radius: 6px; }
+      .search { padding: 6px 8px; font-size: 9px; border-radius: 4px; margin-bottom: 4px; }
+      .control-row { gap: 3px; margin-top: 0; }
+      select, .location-button { padding: 6px 6px; font-size: 9px; border-radius: 4px; }
+      h2 { font-size: 10px; margin: 2px 0; }
+      .event-list { gap: 3px; min-height: 0; }
+      .event-card { padding: 6px; border-radius: 6px; }
+      .event-card h3 { font-size: 9px; margin-bottom: 1px; line-height: 1.1; }
+      .event-card p { font-size: 7px; margin: 1px 0; line-height: 1.2; }
+      .status { padding: 4px 6px; font-size: 8px; }
+      #map { min-height: calc(100vh - 70px); }
     }
     
     @media (max-width: 400px) {
