@@ -25,36 +25,24 @@ module.exports = async (req, res) => {
     const events = [];
 
     for (const record of records) {
-      // Column C - Organization name
       const org = (record['What organization do you represent?'] || '').trim();
-      // Column H - Zip code
       const zip = (record['Zipcode'] || '').trim();
-      // Column L - Date
       let date = (record['Date'] || '').trim();
-      // Column M - Activity name
       const activityName = (record['Event/activity name'] || '').trim();
-      // Column N - Time
       let time = (record['Start time / End time '] || '').trim();
-      // Column O - Location
       const location = (record['Location of the event (please include State/County)'] || '').trim();
-      // Column P - Display check
-      const showIt = (record['Is this event open to the public? '] || '').trim();
-      // Column T - Description
-      let description = (record['Event description: Briefly describe what you\'re planning and how it will help eligible voters participate.'] || '').trim();
-      // Column V - Share publicly check
-      const sharePublic = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
+      const isPublic = (record['Is this event open to the public? '] || '').trim();
+      let description = (record['Details'] || '').trim();
+      const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
 
-      // Filters
       if (!activityName || !location) continue;
-      if (showIt.toLowerCase() !== 'yes') continue;
-      if (sharePublic.toLowerCase() !== 'yes') continue;
+      if (isPublic.toLowerCase() !== 'yes') continue;
+      if (canShare.toLowerCase() !== 'yes') continue;
 
-      // Replace TBD/TBA
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
 
-      // Geocode by zip
       try {
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`);
         const geoData = await geoRes.json();
