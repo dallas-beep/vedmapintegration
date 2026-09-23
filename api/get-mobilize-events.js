@@ -25,20 +25,22 @@ module.exports = async (req, res) => {
     const events = [];
 
     for (const record of records) {
-      const org = (record['What organization do you represent?'] || '').trim();
       const zip = (record['Zipcode'] || '').trim();
+      const isPublic = (record['Is this event open to the public? '] || '').trim();
+      const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
+
+      if (!zip) continue;
+      if (isPublic.toLowerCase() !== 'yes') continue;
+      if (canShare.toLowerCase() !== 'yes') continue;
+
+      const org = (record['What organization do you represent?'] || '').trim();
       let date = (record['Date'] || '').trim();
       const activityName = (record['Event/activity name'] || '').trim();
       let time = (record['\nStart time / End time '] || '').trim();
       const location = (record['Location of the event (please include State/County)'] || '').trim();
-      const isPublic = (record['Is this event open to the public? '] || '').trim();
       let description = (record['Details'] || '').trim();
-      const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
 
       if (!activityName || !location) continue;
-      if (isPublic.toLowerCase() !== 'yes') continue;
-      if (canShare.toLowerCase() !== 'yes') continue;
-      if (!zip) continue;
 
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
