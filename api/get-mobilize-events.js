@@ -35,7 +35,14 @@ module.exports = async (req, res) => {
       // COLUMN C (index 2) - org name
       const org = (row[2] || '').trim();
       // COLUMN H (index 7) - zip code; use for mapping
-      const zip = (row[7] || '').trim();
+      let zip = (row[7] || '').trim();
+      
+      // If no zip in H, try to extract from Column G (mailing address)
+      if (!zip) {
+        const mailingAddress = (row[6] || '').trim();
+        const zipMatch = mailingAddress.match(/\b\d{5}(?:-\d{4})?\b/);
+        zip = zipMatch ? zipMatch[0] : '';
+      }
       // COLUMN L (index 11) - date
       let date = (row[11] || '').trim();
       // COLUMN M (index 12) - activity name
@@ -48,10 +55,8 @@ module.exports = async (req, res) => {
       const isPublic = (row[15] || '').trim();
       // COLUMN T (index 19) - details - display as "Event Description"
       let description = (row[19] || '').trim();
-      // COLUMN V (index 21) - if not yes do not display
-      const canShare = (row[21] || '').trim();
 
-      if (!zip || isPublic.toLowerCase() !== 'yes' || canShare.toLowerCase() !== 'yes' || !activityName || !location) continue;
+      if (!zip || isPublic.toLowerCase() !== 'yes' || !activityName || !location) continue;
 
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
