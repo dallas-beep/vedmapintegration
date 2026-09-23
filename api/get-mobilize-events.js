@@ -36,4 +36,40 @@ module.exports = async (req, res) => {
       const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
 
       if (!activityName || !location) continue;
-      if
+      if (isPublic.toLowerCase() !== 'yes') continue;
+      if (canShare.toLowerCase() !== 'yes') continue;
+      if (!zip) continue;
+
+      if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
+      if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
+      if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
+
+      try {
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`);
+        const geoData = await geoRes.json();
+        if (!geoData || !geoData[0]) continue;
+
+        const geo = geoData[0];
+        events.push({
+          id: activityName,
+          title: activityName,
+          hostOrganization: org,
+          date: date,
+          time: time,
+          description: description,
+          address: location,
+          zip: zip,
+          lat: parseFloat(geo.lat),
+          lon: parseFloat(geo.lon)
+        });
+      } catch (e) {
+        console.error(`Geocode fail: ${zip}`);
+      }
+    }
+
+    return res.status(200).json({ count: events.length, data: events });
+  } catch (error) {
+    console.error('Error:', error);
+    return res.status(200).json({ count: 0, data: [] });
+  }
+};
