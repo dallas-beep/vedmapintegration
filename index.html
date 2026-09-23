@@ -16,8 +16,8 @@
     .header-buttons a { padding: 12px 24px; background: #6cc4a1; color: #3a1d5c; text-decoration: none; font-weight: 800; font-size: 14px; border-radius: 25px; display: inline-block; }
     .header-buttons a:hover { background: #5db894; }
     
-    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; background: #f8fafc; }
-    .sidebar { display: flex; flex-direction: column; min-height: 0; gap: 12px; padding: 16px; overflow-y: auto; }
+    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; background: #f8fafc; min-height: 0; }
+    .sidebar { display: flex; flex-direction: column; min-height: 0; gap: 12px; padding: 16px; overflow-y: auto; background: #f8fafc; }
     .controls, .event-card, .empty { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 5px #0000000a; }
     .controls { padding: 20px; flex-shrink: 0; }
     .search { width: 100%; padding: 11px 13px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
@@ -37,9 +37,24 @@
     #map { height: 100%; width: 100%; border: none; }
     
     @media (max-width: 850px) { 
-      .layout { grid-template-columns: 1fr; } 
-      .sidebar { max-height: 40vh; } 
-      #map { height: 55vh; } 
+      .layout { grid-template-columns: 1fr; min-height: auto; }
+      .sidebar { max-height: 35vh; border-bottom: 1px solid #e2e8f0; }
+      #map { height: 50vh; }
+    }
+    
+    @media (max-width: 600px) {
+      header { padding: 15px; }
+      header h1 { font-size: 18px; margin-bottom: 12px; }
+      .header-buttons a { padding: 10px 16px; font-size: 12px; }
+      .sidebar { max-height: 30vh; padding: 10px; gap: 8px; }
+      .controls { padding: 14px; }
+      .search { padding: 9px 11px; font-size: 13px; }
+      select, .location-button { padding: 8px 8px; font-size: 12px; }
+      h2 { font-size: 16px; }
+      .event-card { padding: 10px; }
+      .event-card h3 { font-size: 13px; }
+      .event-card p { font-size: 12px; }
+      #map { height: 45vh; }
     }
   </style>
 </head>
@@ -47,7 +62,7 @@
   <header>
     <h1>Find Your Local Vote Early Day Celebration</h1>
     <div class="header-buttons">
-      <a href="https://docs.google.com/forms/d/e/1FAIpQLSdFwAgGr-6dCOC62sDXdG1E-wnm67UUPV8rfaWmcXAMKCQ22g/viewform" target="_blank">Host Event</a>
+      <a href="https://docs.google.com/spreadsheets/d/1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s/edit?usp=sharing" target="_blank">Host Event</a>
       <a href="https://www.voteearlyday.org/vote" target="_blank">Plan to Vote</a>
     </div>
   </header>
