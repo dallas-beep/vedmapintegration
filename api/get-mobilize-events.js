@@ -18,56 +18,69 @@ module.exports = async (req, res) => {
 
     const response = await fetch(csvUrl);
     if (!response.ok) {
-      console.error(`Failed to fetch CSV: ${response.statusText}`);
+      console.error(`Failed to fetch sheet: ${response.status}`);
       return res.status(200).json({ count: 0, data: [] });
     }
 
     const csvText = await response.text();
     const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
 
+    console.log(`Parsed ${rows.length} rows from sheet`);
     const events = [];
 
-    // Loop through rows starting from row 1 (skipping header at row 0)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row) continue;
 
-      // Column mappings based on your requirements
-      const org = (row[2] || '').trim();          // Column C
-      const zip = (row[7] || '').trim();          // Column H
-      let date = (row[11] || '').trim();        // Column L
-      const activityName = (row[12] || '').trim(); // Column M
-      let time = (row[13] || '').trim();        // Column N
-      const location = (row[14] || '').trim();    // Column O
-      const isPublic = (row[15] || '').trim();    // Column P
-      let description = (row[19] || '').trim();   // Column T
-      const canShare = (row[21] || '').trim();    // Column V
+      const org = (row[2] || '').trim();
+      const zip = (row[7] || '').trim();
+      let date = (row[11] || '').trim();
+      const activityName = (row[12] || '').trim();
+      let time = (row[13] || '').trim();
+      const location = (row[14] || '').trim();
+      const isPublic = (row[15] || '').trim();
+      let description = (row[19] || '').trim();
+      const canShare = (row[21] || '').trim();
 
-      // Filters: Skip if requirements are not met
-      if (!zip || isPublic.toLowerCase() !== 'yes' || canShare.toLowerCase() !== 'yes' || !activityName || !location) {
+      if (!zip) {
+        console.warn(`Row ${i}: Missing zip code`);
+        continue;
+      }
+      if (isPublic.toLowerCase() !== 'yes') {
+        console.warn(`Row ${i}: Not public (${isPublic})`);
+        continue;
+      }
+      if (canShare.toLowerCase() !== 'yes') {
+        console.warn(`Row ${i}: Cannot share (${canShare})`);
+        continue;
+      }
+      if (!activityName || !location) {
+        console.warn(`Row ${i}: Missing activity name or location`);
         continue;
       }
 
-      // TBD / TBA handling
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
 
       try {
-        // Nominatim requires a User-Agent header
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`, {
-          headers: {
-            'User-Agent': 'EventMapperApp/1.0 (contact@yourdomain.com)'
-          }
+          headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
         });
         
+        if (!geoRes.ok) {
+          console.error(`Nominatim error for zip ${zip}: ${geoRes.status}`);
+          continue;
+        }
+
         const geoData = await geoRes.json();
-        if (!geoData || geoData.length === 0) {
-          console.warn(`Geocode failed or not found for zip: ${zip}`);
+        if (!geoData || !geoData[0]) {
+          console.warn(`No geocode result for zip ${zip}`);
           continue;
         }
 
         const geo = geoData[0];
+        console.log(`Row ${i}: Geocoded ${zip} successfully`);
         events.push({
           id: activityName,
           title: activityName,
@@ -81,13 +94,14 @@ module.exports = async (req, res) => {
           lon: parseFloat(geo.lon)
         });
       } catch (e) {
-        console.error(`Geocode error for zip ${zip}:`, e.message);
+        console.error(`Geocode exception for zip ${zip}: ${e.message}`);
       }
     }
 
+    console.log(`Final event count: ${events.length}`);
     return res.status(200).json({ count: events.length, data: events });
   } catch (error) {
-    console.error('Error processing spreadsheet:', error);
+    console.error('Fatal error:', error);
     return res.status(200).json({ count: 0, data: [] });
   }
 };
