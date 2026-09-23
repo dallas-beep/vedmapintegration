@@ -34,6 +34,10 @@
     .empty { padding: 22px 14px; text-align: center; color: #64748b; font-size: 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
     #map { height: 100%; width: 100%; border: none; }
     
+    .leaflet-popup-content { font-size: 13px; }
+    .leaflet-popup-content h3 { margin: 0 0 10px 0; color: #551b7a; font-weight: 700; }
+    .leaflet-popup-content p { margin: 6px 0; line-height: 1.4; }
+    
     @media (max-width: 850px) { 
       .layout { grid-template-columns: 1fr; min-height: auto; }
       .sidebar { max-height: 35vh; border-bottom: 1px solid #e2e8f0; }
@@ -121,7 +125,19 @@
       if (!events.length) { list.innerHTML = '<div class="empty">No events found</div>'; return; }
 
       events.forEach(e => {
-        const marker = L.marker([e.lat, e.lon]).bindPopup(`<strong>${escapeHtml(e.title)}</strong><br>${escapeHtml(e.address)}`).addTo(markerLayer);
+        const popupHtml = `
+          <div style="max-width: 300px;">
+            <h3 style="margin: 0 0 10px 0; color: #551b7a; font-size: 16px; font-weight: 700;">${escapeHtml(e.title)}</h3>
+            ${e.hostOrganization ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Organization:</strong> ${escapeHtml(e.hostOrganization)}</p>` : ''}
+            ${e.date ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
+            ${e.time ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
+            ${e.address ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Location:</strong> ${escapeHtml(e.address)}</p>` : ''}
+            ${e.description ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Details:</strong> ${escapeHtml(e.description)}</p>` : ''}
+          </div>
+        `;
+
+        const marker = L.marker([e.lat, e.lon]).bindPopup(popupHtml).addTo(markerLayer);
+        
         const card = document.createElement('div');
         card.className = 'event-card';
         card.innerHTML = `<h3>${escapeHtml(e.title)}</h3><p>${escapeHtml(e.address)}</p>`;
