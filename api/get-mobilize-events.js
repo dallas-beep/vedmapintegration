@@ -1,167 +1,195 @@
-const fetch = require('node-fetch');
-const { parse } = require('csv-parse/sync');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vote Early Day 2026 - Event Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
+    body { display: flex; flex-direction: column; }
+    
+    header { background: #5c2d91; color: #fff; padding: 20px; text-align: center; flex-shrink: 0; }
+    header h1 { margin: 0 0 15px 0; font-size: 24px; font-weight: 800; }
+    .header-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .header-buttons a { padding: 12px 24px; background: #6cc4a1; color: #3a1d5c; text-decoration: none; font-weight: 800; font-size: 14px; border-radius: 25px; display: inline-block; }
+    .header-buttons a:hover { background: #5db894; }
+    
+    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; background: #f8fafc; min-height: 0; }
+    .sidebar { display: flex; flex-direction: column; min-height: 0; gap: 12px; padding: 16px; overflow-y: auto; background: #f8fafc; }
+    .controls { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; flex-shrink: 0; }
+    .search { width: 100%; padding: 11px 13px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+    .control-row { display: flex; gap: 8px; margin-top: 10px; }
+    select, .location-button { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font-size: 13px; }
+    .location-button { cursor: pointer; color: #fff; background: #551b7a; border-color: #551b7a; }
+    .location-button:hover { background: #6cb090; border-color: #6cb090; }
+    h2 { margin: 0; font-size: 18px; flex-shrink: 0; }
+    .status { padding: 9px 12px; border-radius: 8px; background: #551b7a; color: #fff; font-size: 12px; font-weight: 600; text-align: center; flex-shrink: 0; }
+    .event-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+    .event-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; cursor: pointer; flex-shrink: 0; }
+    .event-card:hover { border-color: #6cb090; transform: translateY(-1px); }
+    .event-card h3 { margin: 0 0 6px 0; color: #551b7a; font-size: 15px; font-weight: 700; }
+    .event-card p { margin: 4px 0; color: #475569; font-size: 13px; line-height: 1.35; }
+    .empty { padding: 22px 14px; text-align: center; color: #64748b; font-size: 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
+    #map { height: 100%; width: 100%; border: none; }
+    
+    .leaflet-popup-content { font-size: 13px; }
+    .leaflet-popup-content h3 { margin: 0 0 10px 0; color: #551b7a; font-weight: 700; }
+    .leaflet-popup-content p { margin: 6px 0; line-height: 1.4; }
+    
+    @media (max-width: 850px) { 
+      .layout { grid-template-columns: 1fr; min-height: auto; }
+      .sidebar { max-height: 40vh; border-bottom: 1px solid #e2e8f0; padding: 12px; }
+      #map { height: 55vh; }
+      .event-card { padding: 12px; }
+      .event-card h3 { font-size: 14px; margin-bottom: 8px; }
+      .event-card p { font-size: 12px; margin: 4px 0; word-wrap: break-word; }
+    }
+    
+    @media (max-width: 600px) {
+      header { padding: 10px 8px; }
+      header h1 { font-size: 15px; margin-bottom: 8px; line-height: 1.1; }
+      .header-buttons { gap: 6px; }
+      .header-buttons a { padding: 8px 12px; font-size: 10px; }
+      .layout { grid-template-columns: 45% 1fr; min-height: 0; }
+      .sidebar { max-height: 100%; padding: 8px; gap: 6px; overflow-y: auto; }
+      .controls { padding: 8px; border-radius: 8px; }
+      .search { padding: 8px 10px; font-size: 11px; border-radius: 5px; margin-bottom: 6px; }
+      .control-row { gap: 4px; margin-top: 0; }
+      select, .location-button { padding: 7px 8px; font-size: 10px; border-radius: 5px; }
+      h2 { font-size: 12px; margin: 2px 0; }
+      .event-list { gap: 4px; min-height: 0; }
+      .event-card { padding: 8px; border-radius: 8px; }
+      .event-card h3 { font-size: 10px; margin-bottom: 2px; line-height: 1.2; }
+      .event-card p { font-size: 8px; margin: 1px 0; line-height: 1.2; }
+      .status { padding: 6px 8px; font-size: 9px; }
+      #map { height: 100%; }
+    }
+    
+    @media (max-width: 400px) {
+      header h1 { font-size: 14px; margin-bottom: 8px; }
+      .header-buttons a { padding: 8px 12px; font-size: 10px; }
+      .sidebar { max-height: 25vh; padding: 8px; }
+      .event-card { padding: 8px; }
+      .event-card h3 { font-size: 10px; }
+      .event-card p { font-size: 8px; }
+      #map { height: 75vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Find Your Local Vote Early Day Celebration</h1>
+    <div class="header-buttons">
+      <a href="https://docs.google.com/forms/d/e/1FAIpQLSdFwAgGr-6dCOC62sDXdG1E-wnm67UUPV8rfaWmcXAMKCQ22g/viewform" target="_blank">Host Event</a>
+      <a href="https://www.voteearlyday.org/vote" target="_blank">Plan to Vote</a>
+    </div>
+  </header>
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Content-Type', 'application/json');
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="controls">
+        <input id="search" class="search" type="search" placeholder="Search events..." />
+        <div class="control-row">
+          <select id="radius">
+            <option value="all">Any distance</option>
+            <option value="5">5 miles</option>
+            <option value="10">10 miles</option>
+            <option value="25">25 miles</option>
+          </select>
+          <button id="location" class="location-button">Use location</button>
+        </div>
+      </div>
+      <h2>Events</h2>
+      <div id="eventList" class="event-list"><div class="empty">Loading...</div></div>
+      <div id="status" class="status">Connecting...</div>
+    </aside>
+    <div id="map"></div>
+  </main>
 
-  if (req.method === 'OPTIONS') {
-    res.status(204).end();
-    return;
-  }
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    const map = L.map('map').setView([39.8283, -98.5795], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    const markerLayer = L.featureGroup().addTo(map);
+    let allEvents = [];
+    let userLocation = null;
 
-  try {
-    const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
-    const GID = '1581051441';
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+    const escapeHtml = (v) => String(v || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
-    const response = await fetch(csvUrl);
-    if (!response.ok) {
-      console.error(`Failed to fetch sheet: ${response.status}`);
-      return res.status(200).json({ count: 0, data: [] });
+    function milesBetween(a, b) {
+      const toRad = d => d * Math.PI / 180;
+      const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+      const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon/2)**2;
+      return 3958.8 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
     }
 
-    const csvText = await response.text();
-    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
-
-    console.log(`Parsed ${rows.length} rows from sheet`);
-    const events = [];
-
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row) continue;
-
-      // COLUMN C (index 2) - org name
-      const org = (row[2] || '').trim();
-      // COLUMN H (index 7) - zip code; use for mapping
-      let zip = (row[7] || '').trim();
-      
-      // If no zip in H, try to extract from Column G (mailing address)
-      if (!zip) {
-        const mailingAddress = (row[6] || '').trim();
-        const zipMatch = mailingAddress.match(/\b\d{5}(?:-\d{4})?\b/);
-        zip = zipMatch ? zipMatch[0] : '';
-      }
-      // COLUMN L (index 11) - date
-      let date = (row[11] || '').trim();
-      // COLUMN M (index 12) - activity name
-      let activityName = (row[12] || '').trim();
-      // COLUMN N (index 13) - time
-      let time = (row[13] || '').trim();
-      // COLUMN O (index 14) - location
-      const location = (row[14] || '').trim();
-      // COLUMN P (index 15) - if not "Yes" do not display
-      const isPublic = (row[15] || '').trim().toLowerCase();
-      // COLUMN T (index 19) - details - display as "Event Description"
-      let description = (row[19] || '').trim();
-
-      // Convert TBA/TBD to "Coming Soon"
-      if (activityName.toUpperCase() === 'TBD' || activityName.toUpperCase() === 'TBA') activityName = 'Coming Soon';
-      if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
-      if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
-      if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
-
-      // Fix 4-digit zip codes by padding with leading zero
-      if (zip.length === 4) zip = '0' + zip;
-
-      // Debug: log what we're checking
-      if (activityName) {
-        if (!zip) console.warn(`[${i}] "${activityName}" - NO ZIP`);
-        if (isPublic !== 'yes') console.warn(`[${i}] "${activityName}" - isPublic="${isPublic}" (not 'yes')`);
-        if (!location) console.warn(`[${i}] "${activityName}" - NO LOCATION`);
-      }
-
-      if (!zip || isPublic !== 'yes' || !location) continue;
-
-      try {
-        let lat = null, lon = null;
-        let geocoded = false;
-
-        // Try geocoding with zip first
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`, {
-          headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
-        });
-
-        if (geoRes.ok) {
-          const geoData = await geoRes.json();
-          if (geoData && geoData[0]) {
-            lat = parseFloat(geoData[0].lat);
-            lon = parseFloat(geoData[0].lon);
-            
-            // Check if coordinates are within US bounds
-            if (lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66) {
-              geocoded = true;
-            }
-          }
-        }
-
-        // If zip geocoding failed, try city + state from location
-        if (!geocoded && location) {
-          const cityStateMatch = location.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
-          if (cityStateMatch) {
-            const cityState = `${cityStateMatch[1].trim()}, ${cityStateMatch[2]}`;
-            const geoRes2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityState)}`, {
-              headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
-            });
-
-            if (geoRes2.ok) {
-              const geoData = await geoRes2.json();
-              if (geoData && geoData[0]) {
-                lat = parseFloat(geoData[0].lat);
-                lon = parseFloat(geoData[0].lon);
-                
-                // Check if coordinates are within US bounds
-                if (lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66) {
-                  geocoded = true;
-                  console.log(`Geocoded via city/state for ${activityName}: ${cityState}`);
-                }
-              }
-            }
-          }
-        }
-
-        // If all geocoding failed, use default US center
-        if (!geocoded) {
-          lat = 39.8283;
-          lon = -98.5795;
-          console.warn(`Geocoding failed for ${activityName} (${location}), using default US center`);
-        }
-
-        events.push({
-          id: activityName,
-          title: activityName,
-          hostOrganization: org,
-          date: date,
-          time: time,
-          description: description,
-          address: location,
-          zip: zip,
-          lat: lat,
-          lon: lon
-        });
-      } catch (e) {
-        console.error(`Geocode exception for ${activityName}: ${e.message}`);
-        // Even if geocoding crashes, still add event with default center
-        events.push({
-          id: activityName,
-          title: activityName,
-          hostOrganization: org,
-          date: date,
-          time: time,
-          description: description,
-          address: location,
-          zip: zip,
-          lat: 39.8283,
-          lon: -98.5795
-        });
-      }
+    function filter() {
+      const q = document.getElementById('search').value.toLowerCase();
+      const r = document.getElementById('radius').value;
+      const filtered = allEvents.filter(e => {
+        const match = !q || e.title.toLowerCase().includes(q) || e.address.toLowerCase().includes(q);
+        const dist = userLocation ? milesBetween(userLocation, e) : null;
+        return match && (r === 'all' || !dist || dist <= Number(r));
+      });
+      render(filtered);
     }
 
-    console.log(`Final event count: ${events.length}`);
-    return res.status(200).json({ count: events.length, data: events });
-  } catch (error) {
-    console.error('Fatal error:', error);
-    return res.status(200).json({ count: 0, data: [] });
-  }
-};
+    function render(events) {
+      markerLayer.clearLayers();
+      const list = document.getElementById('eventList');
+      list.innerHTML = '';
+      if (!events.length) { list.innerHTML = '<div class="empty">No events found</div>'; return; }
+
+      events.forEach(e => {
+        const popupHtml = `
+          <div style="max-width: 300px;">
+            <h3 style="margin: 0 0 10px 0; color: #551b7a; font-size: 16px; font-weight: 700;">${escapeHtml(e.title)}</h3>
+            ${e.hostOrganization ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Organization:</strong> ${escapeHtml(e.hostOrganization)}</p>` : ''}
+            ${e.date ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
+            ${e.time ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
+            ${e.address ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Location:</strong> ${escapeHtml(e.address)}</p>` : ''}
+            ${e.description ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Details:</strong> ${escapeHtml(e.description)}</p>` : ''}
+          </div>
+        `;
+
+        const marker = L.marker([e.lat, e.lon]).bindPopup(popupHtml).addTo(markerLayer);
+        
+        const card = document.createElement('div');
+        card.className = 'event-card';
+        card.innerHTML = `
+          <h3>${escapeHtml(e.title)}</h3>
+          ${e.hostOrganization ? `<p><strong>${escapeHtml(e.hostOrganization)}</strong></p>` : ''}
+          ${e.date ? `<p><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
+          ${e.time ? `<p><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
+          <p>${escapeHtml(e.address)}</p>
+          ${e.description ? `<p><strong>Details:</strong> ${escapeHtml(e.description)}</p>` : ''}
+        `;
+        card.addEventListener('click', () => map.setView([e.lat, e.lon], 13));
+        list.appendChild(card);
+      });
+      document.getElementById('status').textContent = `${events.length} event${events.length===1?'':'s'}`;
+    }
+
+    document.getElementById('search').addEventListener('input', filter);
+    document.getElementById('radius').addEventListener('change', filter);
+    document.getElementById('location').addEventListener('click', () => {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(p => {
+        userLocation = {lat: p.coords.latitude, lon: p.coords.longitude};
+        map.setView([userLocation.lat, userLocation.lon], 10);
+        filter();
+      });
+    });
+
+    fetch('/api/get-mobilize-events').then(r => r.json()).then(d => {
+      allEvents = (d.data || []).filter(e => !isNaN(e.lat) && !isNaN(e.lon));
+      filter();
+    }).catch(e => {
+      console.error(e);
+      document.getElementById('eventList').innerHTML = '<div class="empty">Error loading events</div>';
+    });
+  </script>
+</body>
+</html>
