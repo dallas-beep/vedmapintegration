@@ -7,7 +7,7 @@ module.exports = async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.status(204).end();
     return;
   }
 
@@ -17,25 +17,25 @@ module.exports = async (req, res) => {
     const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
     const response = await fetch(csvUrl);
-    if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
+    if (!response.ok) {
+      return res.status(200).json({ count: 0, data: [] });
+    }
 
     const csvText = await response.text();
-    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
+    const records = parse(csvText, { columns: true, skip_empty_lines: true });
 
     const events = [];
 
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || !row[11]) continue;
+    for (const record of records) {
+      const title = record['Event/activity name'] ? record['Event/activity name'].trim() : '';
+      const org = record['What organization do you represent?'] ? record['What organization do you represent?'].trim() : '';
+      let time = record['Start time / End time'] ? record['Start time / End time'].trim() : '';
+      const location = record['Location of the event (please include State/County)'] ? record['Location of the event (please include State/County)'].trim() : '';
+      const canPromote = record['Can we promote your event?'] ? record['Can we promote your event?'].trim().toLowerCase() : '';
+      const regLink = record['Event registration link'] ? record['Event registration link'].trim() : '';
 
-      const title = (row[11] || '').trim();
-      const org = (row[2] || '').trim();
-      let time = (row[12] || '').trim();
-      const location = (row[13] || '').trim();
-      const isPublic = (row[14] || '').trim().toLowerCase();
-      const regLink = (row[15] || '').trim();
-
-      if (isPublic !== 'yes' || !title || !location) continue;
+      if (!title || !location) continue;
+      if (canPromote !== 'yes') continue;
 
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') {
         time = 'Coming Soon...';
@@ -53,7 +53,6 @@ module.exports = async (req, res) => {
           hostOrganization: org,
           date: 'October 24, 2026',
           time: time,
-          description: `${org} - October 24, 2026`,
           address: location,
           lat: parseFloat(geo.lat),
           lon: parseFloat(geo.lon),
@@ -64,9 +63,10 @@ module.exports = async (req, res) => {
       }
     }
 
-    res.status(200).json({ count: events.length, data: events });
+    return res.status(200).json({ count: events.length, data: events });
+
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(200).json({ count: 0, data: [], error: error.message });
   }
 };
