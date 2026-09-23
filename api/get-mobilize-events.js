@@ -75,31 +75,59 @@ module.exports = async (req, res) => {
       if (!zip || isPublic !== 'yes' || !location) continue;
 
       try {
+        let lat = null, lon = null;
+        let geocoded = false;
+
+        // Try geocoding with zip first
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`, {
           headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
         });
 
-        if (!geoRes.ok) {
-          console.error(`Nominatim error for zip ${zip}: ${geoRes.status}`);
-          continue;
+        if (geoRes.ok) {
+          const geoData = await geoRes.json();
+          if (geoData && geoData[0]) {
+            lat = parseFloat(geoData[0].lat);
+            lon = parseFloat(geoData[0].lon);
+            
+            // Check if coordinates are within US bounds
+            if (lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66) {
+              geocoded = true;
+            }
+          }
         }
 
-        const geoData = await geoRes.json();
-        if (!geoData || !geoData[0]) {
-          console.warn(`No geocode result for zip ${zip}`);
-          continue;
+        // If zip geocoding failed, try city + state from location
+        if (!geocoded && location) {
+          const cityStateMatch = location.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
+          if (cityStateMatch) {
+            const cityState = `${cityStateMatch[1].trim()}, ${cityStateMatch[2]}`;
+            const geoRes2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityState)}`, {
+              headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
+            });
+
+            if (geoRes2.ok) {
+              const geoData = await geoRes2.json();
+              if (geoData && geoData[0]) {
+                lat = parseFloat(geoData[0].lat);
+                lon = parseFloat(geoData[0].lon);
+                
+                // Check if coordinates are within US bounds
+                if (lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66) {
+                  geocoded = true;
+                  console.log(`Geocoded via city/state for ${activityName}: ${cityState}`);
+                }
+              }
+            }
+          }
         }
 
-        const geo = geoData[0];
-        const lat = parseFloat(geo.lat);
-        const lon = parseFloat(geo.lon);
-        
-        // Filter out coordinates outside USA bounds (roughly 24-49N, -125 to -66W) - excludes Canada
-        if (lat < 24 || lat > 49 || lon < -125 || lon > -66) {
-          console.warn(`Geocoding returned non-US coordinates for zip ${zip}: ${lat}, ${lon}`);
-          continue;
+        // If all geocoding failed, use default US center
+        if (!geocoded) {
+          lat = 39.8283;
+          lon = -98.5795;
+          console.warn(`Geocoding failed for ${activityName} (${location}), using default US center`);
         }
-        
+
         events.push({
           id: activityName,
           title: activityName,
@@ -113,7 +141,20 @@ module.exports = async (req, res) => {
           lon: lon
         });
       } catch (e) {
-        console.error(`Geocode exception for zip ${zip}: ${e.message}`);
+        console.error(`Geocode exception for ${activityName}: ${e.message}`);
+        // Even if geocoding crashes, still add event with default center
+        events.push({
+          id: activityName,
+          title: activityName,
+          hostOrganization: org,
+          date: date,
+          time: time,
+          description: description,
+          address: location,
+          zip: zip,
+          lat: 39.8283,
+          lon: -98.5795
+        });
       }
     }
 
