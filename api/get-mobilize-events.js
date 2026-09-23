@@ -32,45 +32,28 @@ module.exports = async (req, res) => {
       const row = rows[i];
       if (!row) continue;
 
-      // COLUMN C (index 2) - org name
       const org = (row[2] || '').trim();
-      // COLUMN H (index 7) - zip code; use for mapping
       let zip = (row[7] || '').trim();
       
-      // If no zip in H, try to extract from Column G (mailing address)
       if (!zip) {
         const mailingAddress = (row[6] || '').trim();
         const zipMatch = mailingAddress.match(/\b\d{5}(?:-\d{4})?\b/);
         zip = zipMatch ? zipMatch[0] : '';
       }
-      // COLUMN L (index 11) - date
+      
       let date = (row[11] || '').trim();
-      // COLUMN M (index 12) - activity name
       let activityName = (row[12] || '').trim();
-      // COLUMN N (index 13) - time
       let time = (row[13] || '').trim();
-      // COLUMN O (index 14) - location
-      const location = (row[14] || '').trim();
-      // COLUMN P (index 15) - if not "Yes" do not display
+      let location = (row[14] || '').trim();
       const isPublic = (row[15] || '').trim().toLowerCase();
-      // COLUMN T (index 19) - details - display as "Event Description"
       let description = (row[19] || '').trim();
 
-      // Convert TBA/TBD to "Coming Soon"
       if (activityName.toUpperCase() === 'TBD' || activityName.toUpperCase() === 'TBA') activityName = 'Coming Soon';
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
 
-      // Fix 4-digit zip codes by padding with leading zero
       if (zip.length === 4) zip = '0' + zip;
-
-      // Debug: log what we're checking
-      if (activityName) {
-        if (!zip) console.warn(`[${i}] "${activityName}" - NO ZIP`);
-        if (isPublic !== 'yes') console.warn(`[${i}] "${activityName}" - isPublic="${isPublic}" (not 'yes')`);
-        if (!location) console.warn(`[${i}] "${activityName}" - NO LOCATION`);
-      }
 
       if (!zip || isPublic !== 'yes' || !location) continue;
 
@@ -78,8 +61,24 @@ module.exports = async (req, res) => {
         let lat = null, lon = null;
         let geocoded = false;
 
-        // Try geocoding with zip first
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`, {
+        // Extract state abbreviation from location
+        let state = '';
+        const stateMatch = location.match(/([A-Z]{2})(?:\s|$|,)/);
+        if (stateMatch) {
+          state = stateMatch[1];
+        }
+
+        // Geocode with zip + state
+        let query = zip;
+        if (state) {
+          query = `${zip}, ${state}`;
+        } else {
+          query = `${zip}, USA`;
+        }
+
+        console.log(`Geocoding ${activityName}: "${query}"`);
+
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`, {
           headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
         });
 
@@ -89,43 +88,17 @@ module.exports = async (req, res) => {
             lat = parseFloat(geoData[0].lat);
             lon = parseFloat(geoData[0].lon);
             
-            // Check if coordinates are within US bounds
             if (lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66) {
               geocoded = true;
+              console.log(`✓ ${activityName}: [${lat.toFixed(4)}, ${lon.toFixed(4)}]`);
             }
           }
         }
 
-        // If zip geocoding failed, try city + state from location
-        if (!geocoded && location) {
-          const cityStateMatch = location.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
-          if (cityStateMatch) {
-            const cityState = `${cityStateMatch[1].trim()}, ${cityStateMatch[2]}`;
-            const geoRes2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityState)}`, {
-              headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
-            });
-
-            if (geoRes2.ok) {
-              const geoData = await geoRes2.json();
-              if (geoData && geoData[0]) {
-                lat = parseFloat(geoData[0].lat);
-                lon = parseFloat(geoData[0].lon);
-                
-                // Check if coordinates are within US bounds
-                if (lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66) {
-                  geocoded = true;
-                  console.log(`Geocoded via city/state for ${activityName}: ${cityState}`);
-                }
-              }
-            }
-          }
-        }
-
-        // If all geocoding failed, use default US center
         if (!geocoded) {
           lat = 39.8283;
           lon = -98.5795;
-          console.warn(`Geocoding failed for ${activityName} (${location}), using default US center`);
+          console.warn(`✗ Failed: ${activityName} (${query})`);
         }
 
         events.push({
@@ -141,8 +114,7 @@ module.exports = async (req, res) => {
           lon: lon
         });
       } catch (e) {
-        console.error(`Geocode exception for ${activityName}: ${e.message}`);
-        // Even if geocoding crashes, still add event with default center
+        console.error(`Exception ${activityName}: ${e.message}`);
         events.push({
           id: activityName,
           title: activityName,
@@ -158,7 +130,7 @@ module.exports = async (req, res) => {
       }
     }
 
-    console.log(`Final event count: ${events.length}`);
+    console.log(`Final: ${events.length} events`);
     return res.status(200).json({ count: events.length, data: events });
   } catch (error) {
     console.error('Fatal error:', error);
