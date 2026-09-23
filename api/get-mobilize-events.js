@@ -46,21 +46,33 @@ module.exports = async (req, res) => {
       // COLUMN L (index 11) - date
       let date = (row[11] || '').trim();
       // COLUMN M (index 12) - activity name
-      const activityName = (row[12] || '').trim();
+      let activityName = (row[12] || '').trim();
       // COLUMN N (index 13) - time
       let time = (row[13] || '').trim();
       // COLUMN O (index 14) - location
       const location = (row[14] || '').trim();
       // COLUMN P (index 15) - if not "Yes" do not display
-      const isPublic = (row[15] || '').trim();
+      const isPublic = (row[15] || '').trim().toLowerCase();
       // COLUMN T (index 19) - details - display as "Event Description"
       let description = (row[19] || '').trim();
 
-      if (!zip || isPublic.toLowerCase() !== 'yes' || !activityName || !location) continue;
-
+      // Convert TBA/TBD to "Coming Soon"
+      if (activityName.toUpperCase() === 'TBD' || activityName.toUpperCase() === 'TBA') activityName = 'Coming Soon';
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
+
+      // Fix 4-digit zip codes by padding with leading zero
+      if (zip.length === 4) zip = '0' + zip;
+
+      // Debug: log what we're checking
+      if (activityName) {
+        if (!zip) console.warn(`[${i}] "${activityName}" - NO ZIP`);
+        if (isPublic !== 'yes') console.warn(`[${i}] "${activityName}" - isPublic="${isPublic}" (not 'yes')`);
+        if (!location) console.warn(`[${i}] "${activityName}" - NO LOCATION`);
+      }
+
+      if (!zip || isPublic !== 'yes' || !location) continue;
 
       try {
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`, {
