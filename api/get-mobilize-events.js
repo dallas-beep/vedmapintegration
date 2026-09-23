@@ -20,31 +20,35 @@ module.exports = async (req, res) => {
     if (!response.ok) return res.status(200).json({ count: 0, data: [] });
 
     const csvText = await response.text();
-    const records = parse(csvText, { columns: true, skip_empty_lines: true });
+    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
 
     const events = [];
 
-    for (const record of records) {
-      const isPublic = (record['Is this event open to the public? '] || '').trim().toLowerCase();
-      const canPromote = (record['Can we promote your event?'] || '').trim().toLowerCase();
-      const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim().toLowerCase();
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
 
-      if (isPublic !== 'yes' || canPromote !== 'yes' || canShare !== 'yes') continue;
+      // Column mapping
+      const org = (row[2] || '').trim();           // C
+      const zip = (row[7] || '').trim();           // H
+      let date = (row[11] || '').trim();           // L
+      const activityName = (row[12] || '').trim(); // M
+      let time = (row[13] || '').trim();           // N
+      const location = (row[14] || '').trim();     // O
+      const showIt = (row[15] || '').trim().toLowerCase(); // P
+      let description = (row[19] || '').trim();    // T
+      const sharePublic = (row[21] || '').trim().toLowerCase(); // V
 
-      const org = (record['What organization do you represent?'] || '').trim();
-      const zip = (record['Zipcode'] || '').trim();
-      let date = (record['Date'] || '').trim();
-      const activityName = (record['Event/activity name'] || '').trim();
-      let time = (record['Start time / End time '] || '').trim();
-      const location = (record['Location of the event (please include State/County)'] || '').trim();
-      let description = (record['Event description: Briefly describe what you\'re planning and how it will help eligible voters participate.'] || '').trim();
-
+      // Filters: P and V must both be "yes"
+      if (showIt !== 'yes' || sharePublic !== 'yes') continue;
       if (!activityName || !location) continue;
 
+      // Replace TBD/TBA
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
 
+      // Geocode by zip
       try {
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`);
         const geoData = await geoRes.json();
