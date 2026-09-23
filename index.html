@@ -30,7 +30,7 @@
     .event-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; cursor: pointer; flex-shrink: 0; }
     .event-card:hover { border-color: #6cb090; transform: translateY(-1px); }
     .event-card h3 { margin: 0 0 6px 0; color: #551b7a; font-size: 15px; font-weight: 700; }
-    .event-card p { margin: 4px 0; color: #475569; font-size: 13px; line-height: 1.35; }
+    .event-card p { margin: 3px 0; color: #475569; font-size: 12px; line-height: 1.3; }
     .empty { padding: 22px 14px; text-align: center; color: #64748b; font-size: 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
     #map { height: 100%; width: 100%; border: none; }
     
@@ -55,7 +55,7 @@
       h2 { font-size: 16px; }
       .event-card { padding: 10px; }
       .event-card h3 { font-size: 13px; }
-      .event-card p { font-size: 12px; }
+      .event-card p { font-size: 11px; }
       #map { height: 45vh; }
     }
   </style>
@@ -100,6 +100,12 @@
 
     const escapeHtml = (v) => String(v || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
+    const convertTBA = (str) => {
+      const upper = str.toUpperCase();
+      if (upper === 'TBA' || upper === 'TBD') return 'Coming Soon';
+      return str;
+    };
+
     function milesBetween(a, b) {
       const toRad = d => d * Math.PI / 180;
       const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
@@ -125,14 +131,19 @@
       if (!events.length) { list.innerHTML = '<div class="empty">No events found</div>'; return; }
 
       events.forEach(e => {
+        const displayTitle = convertTBA(e.title);
+        const displayDate = convertTBA(e.date);
+        const displayTime = convertTBA(e.time);
+        const displayDesc = convertTBA(e.description);
+
         const popupHtml = `
           <div style="max-width: 300px;">
-            <h3 style="margin: 0 0 10px 0; color: #551b7a; font-size: 16px; font-weight: 700;">${escapeHtml(e.title)}</h3>
+            <h3 style="margin: 0 0 10px 0; color: #551b7a; font-size: 16px; font-weight: 700;">${escapeHtml(displayTitle)}</h3>
             ${e.hostOrganization ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Organization:</strong> ${escapeHtml(e.hostOrganization)}</p>` : ''}
-            ${e.date ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
-            ${e.time ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
+            ${displayDate ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Date:</strong> ${escapeHtml(displayDate)}</p>` : ''}
+            ${displayTime ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Time:</strong> ${escapeHtml(displayTime)}</p>` : ''}
             ${e.address ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Location:</strong> ${escapeHtml(e.address)}</p>` : ''}
-            ${e.description ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Details:</strong> ${escapeHtml(e.description)}</p>` : ''}
+            ${displayDesc ? `<p style="margin: 6px 0; line-height: 1.4;"><strong>Details:</strong> ${escapeHtml(displayDesc)}</p>` : ''}
           </div>
         `;
 
@@ -140,7 +151,14 @@
         
         const card = document.createElement('div');
         card.className = 'event-card';
-        card.innerHTML = `<h3>${escapeHtml(e.title)}</h3><p>${escapeHtml(e.address)}</p>`;
+        card.innerHTML = `
+          <h3>${escapeHtml(displayTitle)}</h3>
+          ${e.hostOrganization ? `<p><strong>${escapeHtml(e.hostOrganization)}</strong></p>` : ''}
+          ${displayDate ? `<p><strong>Date:</strong> ${escapeHtml(displayDate)}</p>` : ''}
+          ${displayTime ? `<p><strong>Time:</strong> ${escapeHtml(displayTime)}</p>` : ''}
+          <p>${escapeHtml(e.address)}</p>
+          ${displayDesc ? `<p><strong>Details:</strong> ${escapeHtml(displayDesc)}</p>` : ''}
+        `;
         card.addEventListener('click', () => map.setView([e.lat, e.lon], 13));
         list.appendChild(card);
       });
