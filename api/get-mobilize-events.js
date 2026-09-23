@@ -22,56 +22,38 @@ module.exports = async (req, res) => {
     const csvText = await response.text();
     const records = parse(csvText, { columns: true, skip_empty_lines: true });
 
+    console.log(`Total records: ${records.length}`);
     const events = [];
 
-    for (const record of records) {
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i];
+      
       const zip = (record['Zipcode'] || '').trim();
       const isPublic = (record['Is this event open to the public? '] || '').trim();
       const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
+      const activityName = (record['Event/activity name'] || '').trim();
+      const location = (record['Location of the event (please include State/County)'] || '').trim();
 
-      if (!zip) continue;
-      if (isPublic.toLowerCase() !== 'yes') continue;
-      if (canShare.toLowerCase() !== 'yes') continue;
+      console.log(`Record ${i}: zip="${zip}", isPublic="${isPublic}", canShare="${canShare}", activity="${activityName}", location="${location}"`);
+
+      if (!zip) {
+        console.log(`  SKIP: no zip`);
+        continue;
+      }
+      if (isPublic.toLowerCase() !== 'yes') {
+        console.log(`  SKIP: isPublic="${isPublic}" not yes`);
+        continue;
+      }
+      if (canShare.toLowerCase() !== 'yes') {
+        console.log(`  SKIP: canShare="${canShare}" not yes`);
+        continue;
+      }
+      if (!activityName || !location) {
+        console.log(`  SKIP: missing activity or location`);
+        continue;
+      }
+
+      console.log(`  PASSED FILTERS`);
 
       const org = (record['What organization do you represent?'] || '').trim();
-      let date = (record['Date'] || '').trim();
-      const activityName = (record['Event/activity name'] || '').trim();
-      let time = (record['\nStart time / End time '] || '').trim();
-      const location = (record['Location of the event (please include State/County)'] || '').trim();
-      let description = (record['Details'] || '').trim();
-
-      if (!activityName || !location) continue;
-
-      if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
-      if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
-      if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
-
-      try {
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`);
-        const geoData = await geoRes.json();
-        if (!geoData || !geoData[0]) continue;
-
-        const geo = geoData[0];
-        events.push({
-          id: activityName,
-          title: activityName,
-          hostOrganization: org,
-          date: date,
-          time: time,
-          description: description,
-          address: location,
-          zip: zip,
-          lat: parseFloat(geo.lat),
-          lon: parseFloat(geo.lon)
-        });
-      } catch (e) {
-        console.error(`Geocode fail: ${zip}`);
-      }
-    }
-
-    return res.status(200).json({ count: events.length, data: events });
-  } catch (error) {
-    console.error('Error:', error);
-    return res.status(200).json({ count: 0, data: [] });
-  }
-};
+      let date = (record['Date'] ||
