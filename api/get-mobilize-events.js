@@ -74,6 +74,15 @@ module.exports = async (req, res) => {
         }
 
         const geo = geoData[0];
+        const lat = parseFloat(geo.lat);
+        const lon = parseFloat(geo.lon);
+        
+        // Filter out coordinates outside USA bounds (roughly 24-50N, -125 to -66W)
+        if (lat < 24 || lat > 50 || lon < -125 || lon > -66) {
+          console.warn(`Geocoding returned non-US coordinates for zip ${zip}: ${lat}, ${lon}`);
+          continue;
+        }
+        
         events.push({
           id: activityName,
           title: activityName,
@@ -83,8 +92,8 @@ module.exports = async (req, res) => {
           description: description,
           address: location,
           zip: zip,
-          lat: parseFloat(geo.lat),
-          lon: parseFloat(geo.lon)
+          lat: lat,
+          lon: lon
         });
       } catch (e) {
         console.error(`Geocode exception for zip ${zip}: ${e.message}`);
