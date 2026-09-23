@@ -1,191 +1,60 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vote Early Day 2026 - Event Map</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <style>
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
-    body { display: flex; flex-direction: column; }
-    
-    header { background: #5c2d91; color: #fff; padding: 20px; text-align: center; flex-shrink: 0; }
-    header h1 { margin: 0 0 15px 0; font-size: 24px; font-weight: 800; }
-    .header-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    .header-buttons a { padding: 12px 24px; background: #6cc4a1; color: #3a1d5c; text-decoration: none; font-weight: 800; font-size: 14px; border-radius: 25px; display: inline-block; }
-    .header-buttons a:hover { background: #5db894; }
-    
-    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; background: #f8fafc; min-height: 0; }
-    .sidebar { display: flex; flex-direction: column; min-height: 0; gap: 12px; padding: 16px; overflow-y: auto; background: #f8fafc; }
-    .controls, .event-card, .empty { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 5px #0000000a; }
-    .controls { padding: 20px; flex-shrink: 0; }
-    .search { width: 100%; padding: 11px 13px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
-    .control-row { display: flex; gap: 8px; margin-top: 10px; }
-    select, .location-button { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font-size: 13px; }
-    .location-button { cursor: pointer; color: #fff; background: #551b7a; border-color: #551b7a; }
-    .location-button:hover { background: #6cb090; border-color: #6cb090; }
-    h2 { margin: 0; font-size: 18px; flex-shrink: 0; }
-    .status { padding: 9px 12px; border-radius: 8px; background: #551b7a; color: #fff; font-size: 12px; font-weight: 600; text-align: center; flex-shrink: 0; }
-    .event-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex: 1; }
-    .event-card { padding: 14px; cursor: pointer; flex-shrink: 0; }
-    .event-card:hover { border-color: #6cb090; transform: translateY(-1px); }
-    .event-card h3 { margin: 0 0 6px; color: #551b7a; font-size: 15px; }
-    .event-card p { margin: 4px 0; color: #475569; font-size: 13px; line-height: 1.35; }
-    .distance { color: #551b7a !important; font-weight: 700; }
-    .empty { padding: 22px 14px; text-align: center; color: #64748b; font-size: 14px; }
-    #map { height: 100%; width: 100%; border: none; }
-    
-    /* TABLET: 851px - 1024px */
-    @media (max-width: 1024px) { 
-      .layout { grid-template-columns: 320px 1fr; } 
-      .sidebar { padding: 12px; gap: 8px; }
-      .controls { padding: 16px; }
-    }
-    
-    /* MOBILE: Under 850px - Stack vertically */
-    @media (max-width: 850px) { 
-      .layout { grid-template-columns: 1fr; min-height: calc(100vh - 200px); }
-      .sidebar { max-height: 35vh; border-bottom: 1px solid #e2e8f0; }
-      #map { height: 50vh; }
-    }
-    
-    /* SMALL MOBILE: Under 600px */
-    @media (max-width: 600px) {
-      header { padding: 15px; }
-      header h1 { font-size: 18px; margin-bottom: 12px; }
-      .header-buttons a { padding: 10px 16px; font-size: 12px; }
-      .layout { grid-template-columns: 1fr; }
-      .sidebar { max-height: 30vh; padding: 10px; gap: 8px; }
-      .controls { padding: 14px; }
-      .search { padding: 9px 11px; font-size: 13px; }
-      select, .location-button { padding: 8px 8px; font-size: 12px; }
-      h2 { font-size: 16px; }
-      .event-card { padding: 10px; }
-      .event-card h3 { font-size: 13px; margin-bottom: 4px; }
-      .event-card p { font-size: 12px; margin: 2px 0; }
-      #map { height: 45vh; }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Find Your Local Vote Early Day Celebration</h1>
-    <div class="header-buttons">
-      <a href="https://docs.google.com/spreadsheets/d/1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s/edit?usp=sharing" target="_blank">Host Event</a>
-      <a href="https://www.voteearlyday.org/vote" target="_blank">Plan to Vote</a>
-    </div>
-  </header>
+const fetch = require('node-fetch');
+const { parse } = require('csv-parse/sync');
 
-  <main class="layout">
-    <aside class="sidebar">
-      <div class="controls">
-        <input id="search" class="search" type="search" placeholder="Search events, city, state, or zip..." />
-        <div class="control-row">
-          <select id="radius" aria-label="Filter events by distance">
-            <option value="all">Any distance</option>
-            <option value="1">Within 1 mile</option>
-            <option value="5">Within 5 miles</option>
-            <option value="10">Within 10 miles</option>
-            <option value="15">Within 15 miles</option>
-            <option value="20">Within 20 miles</option>
-            <option value="25">Within 25 miles</option>
-          </select>
-          <button id="location" class="location-button" type="button">Use my location</button>
-        </div>
-      </div>
-      <h2>Events</h2>
-      <div id="eventList" class="event-list"><div class="empty">Loading events...</div></div>
-      <div id="status" class="status">Connecting...</div>
-    </aside>
-    <div id="map" aria-label="Event map"></div>
-  </main>
+const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
+const SHEET_GID = '1581051441';
+const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`;
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script>
-    const map = L.map('map').setView([39.8283, -98.5795], 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
-    const markerLayer = L.featureGroup().addTo(map);
-    let allEvents = [];
-    let userLocation = null;
+module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'application/json');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
 
-    const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
-    const milesBetween = (a, b) => {
-      const radians = (degrees) => degrees * Math.PI / 180;
-      const dLat = radians(b.lat - a.lat), dLon = radians(b.lon - a.lon);
-      const x = Math.sin(dLat / 2) ** 2 + Math.cos(radians(a.lat)) * Math.cos(radians(b.lat)) * Math.sin(dLon / 2) ** 2;
-      return 3958.8 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-    };
-
-    function visibleEvents() {
-      const query = document.getElementById('search').value.toLowerCase().trim();
-      const radius = document.getElementById('radius').value;
-      return allEvents.filter((event) => {
-        const textMatch = !query || [event.title, event.hostOrganization, event.address, event.city, event.state, event.zip, event.date, event.description].some((value) => String(value || '').toLowerCase().includes(query));
-        const distance = userLocation ? milesBetween(userLocation, event) : null;
-        return textMatch && (radius === 'all' || (distance !== null && distance <= Number(radius)));
-      }).map((event) => ({ ...event, distance: userLocation ? milesBetween(userLocation, event) : null }));
+  try {
+    const response = await fetch(SHEET_CSV_URL);
+    if (!response.ok) {
+      return res.status(200).json({ count: 0, data: [] });
     }
 
-    function render(events) {
-      markerLayer.clearLayers();
-      const list = document.getElementById('eventList');
-      list.innerHTML = '';
-      if (!events.length) list.innerHTML = '<div class="empty">No events match your filters.</div>';
+    const csvText = await response.text();
+    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true, trim: true });
 
-      events.forEach((event) => {
-        const location = [event.address, event.city, event.state, event.zip].filter(Boolean).join(', ');
-        const details = [
-          event.hostOrganization && `<strong>Hosted by:</strong> ${escapeHtml(event.hostOrganization)}`,
-          event.date && `<strong>Date:</strong> ${escapeHtml(event.date)}`,
-          event.time && `<strong>Time:</strong> ${escapeHtml(event.time)}`,
-          location && `<strong>Location:</strong> ${escapeHtml(location)}`,
-          event.description && `<strong>Details:</strong><br>${escapeHtml(event.description).replace(/\n/g, '<br>')}`,
-          event.distance !== null && event.distance !== undefined && `<strong>Distance:</strong> ${event.distance.toFixed(1)} miles away`
-        ].filter(Boolean).join('<br>');
-        const marker = L.marker([event.lat, event.lon]).bindPopup(`<div class="event-popup"><strong>${escapeHtml(event.title)}</strong><br>${details}</div>`);
-        markerLayer.addLayer(marker);
-        const card = document.createElement('article');
-        card.className = 'event-card';
-        card.innerHTML = `<h3>${escapeHtml(event.title)}</h3><p>${escapeHtml(event.date)} ${escapeHtml(event.time)}</p><p>${escapeHtml(location)}</p>${event.distance !== null ? `<p class="distance">${event.distance.toFixed(1)} miles away</p>` : ''}`;
-        card.addEventListener('click', () => { map.setView([event.lat, event.lon], 13); marker.openPopup(); });
-        list.appendChild(card);
+    const events = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !row[12]) continue;
+
+      const showIt = (row[15] || '').toLowerCase();
+      if (showIt !== 'yes') continue;
+
+      const lat = parseFloat(row[35] || '0');
+      const lon = parseFloat(row[49] || '0');
+
+      if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue;
+
+      events.push({
+        id: `event-${i}`,
+        title: (row[12] || '').trim(),
+        hostOrganization: (row[2] || '').trim(),
+        date: (row[11] || '').trim(),
+        time: (row[13] || '').trim(),
+        description: (row[19] || '').trim(),
+        address: (row[3] || '').trim(),
+        city: '',
+        state: '',
+        zip: (row[7] || '').trim(),
+        lat: lat,
+        lon: lon
       });
-
-      document.getElementById('status').textContent = `${events.length} event${events.length === 1 ? '' : 's'} shown`;
-      if (events.length && document.getElementById('search').value === '' && document.getElementById('radius').value === 'all') map.fitBounds(markerLayer.getBounds(), { padding: [35, 35], maxZoom: 12 });
     }
 
-    function applyFilters() { render(visibleEvents()); }
-    document.getElementById('search').addEventListener('input', applyFilters);
-    document.getElementById('radius').addEventListener('change', () => {
-      if (document.getElementById('radius').value !== 'all' && !userLocation) requestLocation(); else applyFilters();
-    });
-    document.getElementById('location').addEventListener('click', requestLocation);
+    return res.status(200).json({ count: events.length, data: events });
 
-    function requestLocation() {
-      if (!navigator.geolocation) { alert('Location is not available in this browser.'); return; }
-      document.getElementById('status').textContent = 'Requesting your location...';
-      navigator.geolocation.getCurrentPosition((position) => {
-        userLocation = { lat: position.coords.latitude, lon: position.coords.longitude };
-        map.setView([userLocation.lat, userLocation.lon], 10);
-        applyFilters();
-      }, () => {
-        document.getElementById('status').textContent = 'Location permission is needed for distance filtering';
-      }, { enableHighAccuracy: true, timeout: 10000 });
-    }
-
-    fetch('/api/get-mobilize-events').then((response) => {
-      if (!response.ok) throw new Error(`API error: ${response.status}`);
-      return response.json();
-    }).then((payload) => {
-      allEvents = (payload.data || []).filter((event) => Number.isFinite(Number(event.lat)) && Number.isFinite(Number(event.lon))).map((event) => ({ ...event, lat: Number(event.lat), lon: Number(event.lon) }));
-      applyFilters();
-    }).catch((error) => {
-      console.error(error);
-      document.getElementById('eventList').innerHTML = '<div class="empty">Unable to load events. Please try again later.</div>';
-      document.getElementById('status').textContent = 'Error loading events';
-    });
-  </script>
-</body>
-</html>
+  } catch (error) {
+    return res.status(200).json({ count: 0, data: [], error: error.message });
+  }
+};
