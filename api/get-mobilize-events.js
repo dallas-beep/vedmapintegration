@@ -32,32 +32,26 @@ module.exports = async (req, res) => {
       const row = rows[i];
       if (!row) continue;
 
+      // COLUMN C (index 2) - org name
       const org = (row[2] || '').trim();
+      // COLUMN H (index 7) - zip code; use for mapping
       const zip = (row[7] || '').trim();
+      // COLUMN L (index 11) - date
       let date = (row[11] || '').trim();
+      // COLUMN M (index 12) - activity name
       const activityName = (row[12] || '').trim();
+      // COLUMN N (index 13) - time
       let time = (row[13] || '').trim();
+      // COLUMN O (index 14) - location
       const location = (row[14] || '').trim();
+      // COLUMN P (index 15) - if not "Yes" do not display
       const isPublic = (row[15] || '').trim();
+      // COLUMN T (index 19) - details - display as "Event Description"
       let description = (row[19] || '').trim();
+      // COLUMN V (index 21) - if not yes do not display
       const canShare = (row[21] || '').trim();
 
-      if (!zip) {
-        console.warn(`Row ${i}: Missing zip code`);
-        continue;
-      }
-      if (isPublic.toLowerCase() !== 'yes') {
-        console.warn(`Row ${i}: Not public (${isPublic})`);
-        continue;
-      }
-      if (canShare.toLowerCase() !== 'yes') {
-        console.warn(`Row ${i}: Cannot share (${canShare})`);
-        continue;
-      }
-      if (!activityName || !location) {
-        console.warn(`Row ${i}: Missing activity name or location`);
-        continue;
-      }
+      if (!zip || isPublic.toLowerCase() !== 'yes' || canShare.toLowerCase() !== 'yes' || !activityName || !location) continue;
 
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
@@ -67,7 +61,7 @@ module.exports = async (req, res) => {
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip)}`, {
           headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
         });
-        
+
         if (!geoRes.ok) {
           console.error(`Nominatim error for zip ${zip}: ${geoRes.status}`);
           continue;
@@ -80,7 +74,6 @@ module.exports = async (req, res) => {
         }
 
         const geo = geoData[0];
-        console.log(`Row ${i}: Geocoded ${zip} successfully`);
         events.push({
           id: activityName,
           title: activityName,
