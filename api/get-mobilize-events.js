@@ -25,10 +25,19 @@ module.exports = async (req, res) => {
     const events = [];
 
     for (const record of records) {
+      // COLUMN H - Zip code; use for mapping
       const zip = (record['Zipcode'] || '').trim();
+      
+      // COLUMN P - if not "Yes" do not display
       const isPublic = (record['Is this event open to the public? '] || '').trim();
+      
+      // COLUMN V - if not yes do not display
       const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
+      
+      // COLUMN M - activity name
       const activityName = (record['Event/activity name'] || '').trim();
+      
+      // COLUMN O - location
       const location = (record['Location of the event (please include State/County)'] || '').trim();
 
       if (!zip) continue;
@@ -36,11 +45,19 @@ module.exports = async (req, res) => {
       if (canShare.toLowerCase() !== 'yes') continue;
       if (!activityName || !location) continue;
 
+      // COLUMN C - org name
       const org = (record['What organization do you represent?'] || '').trim();
+      
+      // COLUMN L - date
       let date = (record['Date'] || '').trim();
+      
+      // COLUMN N - time
       let time = (record['\nStart time / End time '] || '').trim();
+      
+      // COLUMN T - details - display as "Event Description"
       let description = (record['Details'] || '').trim();
 
+      // If any information is tbd or tba display as "Coming Soon"
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
       if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
