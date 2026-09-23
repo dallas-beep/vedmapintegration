@@ -20,27 +20,24 @@ module.exports = async (req, res) => {
     if (!response.ok) return res.status(200).json({ count: 0, data: [] });
 
     const csvText = await response.text();
-    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
+    const records = parse(csvText, { columns: true, skip_empty_lines: true });
 
     const events = [];
 
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length < 23) continue;
-
-      const isPublic = (row[15] || '').trim().toLowerCase();
-      const canPromote = (row[21] || '').trim().toLowerCase();
-      const canShare = (row[22] || '').trim().toLowerCase();
+    for (const record of records) {
+      const isPublic = (record['Is this event open to the public? '] || '').trim().toLowerCase();
+      const canPromote = (record['Can we promote your event?'] || '').trim().toLowerCase();
+      const canShare = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim().toLowerCase();
 
       if (isPublic !== 'yes' || canPromote !== 'yes' || canShare !== 'yes') continue;
 
-      const org = (row[2] || '').trim();
-      const zip = (row[7] || '').trim();
-      let date = (row[11] || '').trim();
-      const activityName = (row[12] || '').trim();
-      let time = (row[13] || '').trim();
-      const location = (row[14] || '').trim();
-      let description = (row[18] || '').trim();
+      const org = (record['What organization do you represent?'] || '').trim();
+      const zip = (record['Zipcode'] || '').trim();
+      let date = (record['Date'] || '').trim();
+      const activityName = (record['Event/activity name'] || '').trim();
+      let time = (record['Start time / End time '] || '').trim();
+      const location = (record['Location of the event (please include State/County)'] || '').trim();
+      let description = (record['Event description: Briefly describe what you\'re planning and how it will help eligible voters participate.'] || '').trim();
 
       if (!activityName || !location) continue;
 
@@ -67,7 +64,7 @@ module.exports = async (req, res) => {
           lon: parseFloat(geo.lon)
         });
       } catch (e) {
-        console.error(`Geocode fail: ${zip}`, e.message);
+        console.error(`Geocode fail: ${zip}`);
       }
     }
 
