@@ -114,7 +114,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
-    const map = L.map('map').setView([39.8283, -98.5795], 4);
+    const map = L.map('map').setView([39.8283, -98.5795], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     const markerLayer = L.featureGroup().addTo(map);
     let allEvents = [];
@@ -162,7 +162,14 @@
         
         const card = document.createElement('div');
         card.className = 'event-card';
-        card.innerHTML = `<h3>${escapeHtml(e.title)}</h3><p>${escapeHtml(e.address)}</p>`;
+        card.innerHTML = `
+          <h3>${escapeHtml(e.title)}</h3>
+          ${e.hostOrganization ? `<p><strong>${escapeHtml(e.hostOrganization)}</strong></p>` : ''}
+          ${e.date ? `<p><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
+          ${e.time ? `<p><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
+          <p>${escapeHtml(e.address)}</p>
+          ${e.description ? `<p><strong>Details:</strong> ${escapeHtml(e.description)}</p>` : ''}
+        `;
         card.addEventListener('click', () => map.setView([e.lat, e.lon], 13));
         list.appendChild(card);
       });
