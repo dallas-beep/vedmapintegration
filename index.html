@@ -48,12 +48,13 @@
     }
     
     @media (max-width: 600px) {
-      header { padding: 10px 8px; }
+      html, body { height: 100%; }
+      header { padding: 10px 8px; flex-shrink: 0; }
       header h1 { font-size: 15px; margin-bottom: 8px; line-height: 1.1; }
       .header-buttons { gap: 6px; }
       .header-buttons a { padding: 8px 12px; font-size: 10px; }
-      .layout { display: flex; flex-direction: column; }
-      .sidebar { max-height: 40vh; padding: 8px; gap: 6px; overflow-y: auto; border-bottom: 1px solid #e2e8f0; }
+      .layout { display: flex; flex-direction: column; height: 100vh; }
+      .sidebar { height: 30vh; padding: 8px; gap: 6px; overflow-y: auto; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
       .controls { padding: 8px; border-radius: 8px; }
       .search { padding: 8px 10px; font-size: 11px; border-radius: 5px; margin-bottom: 6px; }
       .control-row { gap: 4px; margin-top: 0; }
@@ -64,7 +65,7 @@
       .event-card h3 { font-size: 10px; margin-bottom: 2px; line-height: 1.2; }
       .event-card p { font-size: 8px; margin: 1px 0; line-height: 1.2; }
       .status { padding: 6px 8px; font-size: 9px; }
-      #map { flex: 1; min-height: 60vh; }
+      #map { flex: 1; height: auto; }
     }
     
     @media (max-width: 400px) {
