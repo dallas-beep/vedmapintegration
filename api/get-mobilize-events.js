@@ -1,148 +1,172 @@
-const fetch = require('node-fetch');
-const { parse } = require('csv-parse/sync');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Community Events Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        .community-map-wrapper {
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 20px;
+            height: 88vh;
+            min-height: 550px;
+            max-width: 1400px;
+            margin: 0 auto;
+            box-sizing: border-box;
+        }
+        @media (max-width: 1200px) {
+            .community-map-wrapper {
+                grid-template-columns: 300px 1fr;
+                gap: 15px;
+            }
+        }
+        @media (max-width: 768px) {
+            .community-map-wrapper {
+                grid-template-columns: 280px 1fr;
+                gap: 12px;
+                height: 70vh;
+                padding: 0;
+            }
+            body {
+                padding: 8px;
+            }
+        }
+        @media (max-width: 480px) {
+            .community-map-wrapper {
+                grid-template-columns: 100px 1fr;
+                gap: 8px;
+            }
+        }
+        
+        .map-sidebar-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            height: 100%;
+            box-sizing: border-box;
+        }
 
-const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
-const SHEET_GID = '1581051441';
-const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`;
-const USER_AGENT = 'VedMapIntegration/1.0 (event map)';
+        .search-controls-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #ffffff;
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+        }
+        @media (max-width: 768px) {
+            .search-controls-wrapper {
+                padding: 12px;
+                gap: 8px;
+            }
+        }
+        @media (max-width: 480px) {
+            .search-controls-wrapper {
+                padding: 8px;
+                gap: 6px;
+                display: none;
+            }
+        }
 
-const clean = (value) => String(value ?? '')
-  .replace(/^\uFEFF/, '')
-  .replace(/\r/g, '')
-  .trim();
+        .search-bar-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .search-bar-container input {
+            width: 100%;
+            padding: 12px 48px 12px 16px;
+            border: 1px solid #ddd;
+            border-radius: 30px;
+            font-size: 14px;
+            outline: none;
+            background: #ffffff;
+            transition: border-color 0.2s;
+        }
+        @media (max-width: 768px) {
+            .search-bar-container input {
+                padding: 10px 40px 10px 12px;
+                font-size: 13px;
+            }
+        }
+        .search-bar-container input:focus {
+            border-color: #551b7a;
+        }
+        .search-icon-btn {
+            position: absolute;
+            right: 6px;
+            background-color: #551b7a;
+            color: #ffffff;
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .search-icon-btn:hover {
+            background-color: #6cb090;
+        }
+        .search-icon-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
 
-const comingSoon = (value) => {
-  const text = clean(value);
-  return /\b(?:TBA|TBD)\b/gi.test(text)
-    ? text.replace(/\b(?:TBA|TBD)\b/gi, 'Coming Soon')
-    : text;
-};
+        .radius-select-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .radius-select-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #551b7a;
+            white-space: nowrap;
+        }
+        .radius-select-group select {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            background: #fff;
+            outline: none;
+            cursor: pointer;
+        }
+        @media (max-width: 768px) {
+            .radius-select-group select {
+                font-size: 12px;
+                padding: 6px 8px;
+            }
+        }
 
-const isYes = (value) => /^yes/i.test(clean(value));
-const isNo = (value) => /^no/i.test(clean(value));
-const validCoordinates = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon)
-  && lat >= 18 && lat <= 72 && lon >= -180 && lon <= -60;
-
-async function geocode(value, cache) {
-  const search = clean(value);
-  if (!search || search.length < 2) return null;
-  if (cache.has(search)) return cache.get(search);
-
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(search)}`,
-      { headers: { 'User-Agent': USER_AGENT } }
-    );
-    
-    if (!response.ok) {
-      cache.set(search, null);
-      return null;
-    }
-    
-    const results = await response.json();
-    if (!results[0]) {
-      cache.set(search, null);
-      return null;
-    }
-
-    const lat = Number(results[0].lat);
-    const lon = Number(results[0].lon);
-    const coordinates = validCoordinates(lat, lon) ? { lat, lon } : null;
-    cache.set(search, coordinates);
-    return coordinates;
-  } catch (e) {
-    cache.set(search, null);
-    return null;
-  }
-}
-
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Content-Type', 'application/json');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-
-  try {
-    const response = await fetch(SHEET_CSV_URL, { headers: { 'User-Agent': USER_AGENT } });
-    const csvText = await response.text();
-
-    const rows = parse(csvText, {
-      skip_empty_lines: true,
-      relax_column_count: true,
-      bom: true,
-      trim: true
-    });
-
-    if (!rows.length) throw new Error('No rows');
-
-    const events = [];
-    const skipReasons = {};
-    const geocodeCache = new Map();
-
-    for (let index = 1; index < rows.length; index += 1) {
-      const row = rows[index] || [];
-      
-      const hostOrganization = comingSoon(row[2]); // Column C
-      const cityState = comingSoon(row[3]); // Column D
-      const zip = clean(row[7]); // Column H
-      const date = comingSoon(row[11]); // Column L
-      const title = comingSoon(row[12]); // Column M - Event/Activity name
-      const time = comingSoon(row[13]); // Column N - Start and End Time
-      const displayAnswer = clean(row[15]); // Column P - "YES" to display
-      const description = comingSoon(row[19]); // Column T - Details
-      const hideAnswer = clean(row[21]); // Column V - "NO" means hide
-
-      if (!title) {
-        skipReasons['no_title'] = (skipReasons['no_title'] || 0) + 1;
-        continue;
-      }
-
-      // Column P must be "YES"
-      if (!isYes(displayAnswer)) {
-        skipReasons['not_yes_in_p'] = (skipReasons['not_yes_in_p'] || 0) + 1;
-        continue;
-      }
-
-      // Column V must not be "NO"
-      if (isNo(hideAnswer)) {
-        skipReasons['no_in_v'] = (skipReasons['no_in_v'] || 0) + 1;
-        continue;
-      }
-
-      // Try to geocode: city/state first, then ZIP
-      let coordinates = await geocode(cityState, geocodeCache);
-      if (!coordinates && zip) {
-        coordinates = await geocode(zip, geocodeCache);
-      }
-      
-      if (!coordinates) {
-        skipReasons['geocode_failed'] = (skipReasons['geocode_failed'] || 0) + 1;
-        continue;
-      }
-
-      events.push({
-        id: `${index}-${title}`,
-        title,
-        hostOrganization,
-        date,
-        time,
-        description,
-        address: cityState,
-        browserUrl: '',
-        city: '',
-        state: '',
-        zip,
-        lat: coordinates.lat,
-        lon: coordinates.lon
-      });
-    }
-
-    return res.status(200).json({ 
-      count: events.length, 
-      skipReasons,
-      data: events 
-    });
-  } catch (error) {
-    return res.status(500).json({ error: error.message, data: [] });
-  }
-};
+        .events-list-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #111;
+        }
+        @media (max-width: 768px) {
+            .events-list-title {
+                font-size: 16px;
+                margin-bottom: 8px;
+            }
+        }
+        @media (max-width: 480px) {
+            .events-list-title {
+                display: none;
