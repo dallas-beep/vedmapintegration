@@ -20,28 +20,34 @@ module.exports = async (req, res) => {
     if (!response.ok) return res.status(200).json({ count: 0, data: [] });
 
     const csvText = await response.text();
-    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
+    const records = parse(csvText, { columns: true, skip_empty_lines: true });
 
     const events = [];
 
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row) continue;
+    for (const record of records) {
+      // Column C - Organization name
+      const org = (record['What organization do you represent?'] || '').trim();
+      // Column H - Zip code
+      const zip = (record['Zipcode'] || '').trim();
+      // Column L - Date
+      let date = (record['Date'] || '').trim();
+      // Column M - Activity name
+      const activityName = (record['Event/activity name'] || '').trim();
+      // Column N - Time
+      let time = (record['Start time / End time '] || '').trim();
+      // Column O - Location
+      const location = (record['Location of the event (please include State/County)'] || '').trim();
+      // Column P - Display check
+      const showIt = (record['Is this event open to the public? '] || '').trim();
+      // Column T - Description
+      let description = (record['Event description: Briefly describe what you\'re planning and how it will help eligible voters participate.'] || '').trim();
+      // Column V - Share publicly check
+      const sharePublic = (record['Can we share your event publicly as part of Vote Early Day?'] || '').trim();
 
-      // Column mapping
-      const org = (row[2] || '').trim();           // C
-      const zip = (row[7] || '').trim();           // H
-      let date = (row[11] || '').trim();           // L
-      const activityName = (row[12] || '').trim(); // M
-      let time = (row[13] || '').trim();           // N
-      const location = (row[14] || '').trim();     // O
-      const showIt = (row[15] || '').trim().toLowerCase(); // P
-      let description = (row[19] || '').trim();    // T
-      const sharePublic = (row[21] || '').trim().toLowerCase(); // V
-
-      // Filters: P and V must both be "yes"
-      if (showIt !== 'yes' || sharePublic !== 'yes') continue;
+      // Filters
       if (!activityName || !location) continue;
+      if (showIt.toLowerCase() !== 'yes') continue;
+      if (sharePublic.toLowerCase() !== 'yes') continue;
 
       // Replace TBD/TBA
       if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
