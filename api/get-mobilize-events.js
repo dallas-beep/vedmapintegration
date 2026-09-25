@@ -41,13 +41,6 @@ module.exports = async (req, res) => {
       if (zip.length === 4) zip = '0' + zip;
       if (!zip || isPublic !== 'yes' || !location) continue;
       try {
-        let lat = 39.8283, lon = -98.5795;
-        if (requestCount > 0) await sleep(1500);
-        requestCount++;
-        const query = `${zip} USA`;
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`, {
-          headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
-        });
         if (geoRes.ok) {
           const geoData = await geoRes.json();
           if (geoData && geoData[0]) {
