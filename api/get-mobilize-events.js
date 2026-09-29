@@ -76,7 +76,7 @@ module.exports = async (req, res) => {
       if (zip.length === 4) zip = '0' + zip;
 
       // Skip rows that aren't public or missing essential info
-      if (!zip || isPublic !== 'yes' || !location) continue;
+      if (isPublic !== 'yes') continue;
 
       // Check if we have coordinates for this zip code in our fast dictionary
       if (ZIP_COORDINATES[zip]) {
