@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 const { parse } = require('csv-parse/sync');
 
-// Fallback coordinate dictionary for known event zip codes so it loads instantly without timeouts
+// Fast coordinate dictionary for known zip codes
 const ZIP_COORDINATES = {
   "54301": { lat: 44.5192, lon: -88.0198 }, // Green Bay, WI
   "86001": { lat: 35.1983, lon: -111.6513 }, // Flagstaff, AZ
@@ -32,6 +32,8 @@ const ZIP_COORDINATES = {
   "11237": { lat: 40.7041, lon: -73.9185 }  // Brooklyn, NY
 };
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -49,18 +51,15 @@ module.exports = async (req, res) => {
     const csvText = await response.text();
     const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
     const events = [];
+    let requestCount = 0;
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row) continue;
       
       const org = (row[2] || '').trim();
-      let zip = (row[7] || '').trim();
-      if (!zip) {
-        const mailingAddress = (row[6] || '').trim();
-        const zipMatch = mailingAddress.match(/\b\d{5}(?:-\d{4})?\b/);
-        zip = zipMatch ? zipMatch[0] : '';
-      }
+      let zip = (row[7] || '').trim(); // Column H
+      const mailingAddress = (row[6] || '').trim(); // Column G
       
       let date = (row[11] || '').trim();
       let activityName = (row[12] || '').trim();
@@ -75,27 +74,133 @@ module.exports = async (req, res) => {
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
       if (zip.length === 4) zip = '0' + zip;
 
-      // Skip rows that aren't public or missing essential info
+      // ONLY filter by Column P = "yes"
       if (isPublic !== 'yes') continue;
 
-      // Check if we have coordinates for this zip code in our fast dictionary
-      if (ZIP_COORDINATES[zip]) {
-        events.push({ 
-          id: activityName, 
-          title: activityName, 
-          hostOrganization: org, 
-          date, 
-          time, 
-          description, 
-          address: location, 
-          zip, 
-          lat: ZIP_COORDINATES[zip].lat, 
-          lon: ZIP_COORDINATES[zip].lon 
-        });
+      let lat = null, lon = null;
+
+      // Strategy 1: Check if zip is in fast dictionary
+      if (zip && ZIP_COORDINATES[zip]) {
+        lat = ZIP_COORDINATES[zip].lat;
+        lon = ZIP_COORDINATES[zip].lon;
+        console.log(`✓ ${activityName}: Found in ZIP_COORDINATES`);
+      } 
+      // Strategy 2: Try to geocode the zip
+      else if (zip) {
+        if (requestCount > 0) await sleep(1500);
+        requestCount++;
+
+        const query = `${zip} USA`;
+        try {
+          const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`, {
+            headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
+          });
+
+          if (geoRes.ok) {
+            const geoData = await geoRes.json();
+            if (geoData && geoData[0]) {
+              const resultLat = parseFloat(geoData[0].lat);
+              const resultLon = parseFloat(geoData[0].lon);
+              if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
+                lat = resultLat;
+                lon = resultLon;
+                console.log(`✓ ${activityName}: Geocoded via zip`);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`Geocode error for ${activityName}: ${e.message}`);
+        }
       }
-      // If the zip code isn't in our dictionary, it is safely skipped rather than defaulting to Kansas
+
+      // Strategy 3: Extract zip from Column G (mailing address)
+      if (!lat || !lon) {
+        const zipMatch = mailingAddress.match(/\b\d{5}(?:-\d{4})?\b/);
+        if (zipMatch) {
+          const extractedZip = zipMatch[0];
+          if (ZIP_COORDINATES[extractedZip]) {
+            lat = ZIP_COORDINATES[extractedZip].lat;
+            lon = ZIP_COORDINATES[extractedZip].lon;
+            console.log(`✓ ${activityName}: Found zip in Column G, used ZIP_COORDINATES`);
+          } else {
+            if (requestCount > 0) await sleep(1500);
+            requestCount++;
+
+            try {
+              const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(extractedZip + ' USA')}`, {
+                headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
+              });
+
+              if (geoRes.ok) {
+                const geoData = await geoRes.json();
+                if (geoData && geoData[0]) {
+                  const resultLat = parseFloat(geoData[0].lat);
+                  const resultLon = parseFloat(geoData[0].lon);
+                  if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
+                    lat = resultLat;
+                    lon = resultLon;
+                    console.log(`✓ ${activityName}: Geocoded via extracted zip from Column G`);
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn(`Geocode error for extracted zip: ${e.message}`);
+            }
+          }
+        }
+      }
+
+      // Strategy 4: Extract city/state from Column G
+      if (!lat || !lon && mailingAddress) {
+        const cityStateMatch = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
+        if (cityStateMatch) {
+          const cityState = `${cityStateMatch[1].trim()}, ${cityStateMatch[2]}`;
+          if (requestCount > 0) await sleep(1500);
+          requestCount++;
+
+          try {
+            const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityState)}`, {
+              headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
+            });
+
+            if (geoRes.ok) {
+              const geoData = await geoRes.json();
+              if (geoData && geoData[0]) {
+                const resultLat = parseFloat(geoData[0].lat);
+                const resultLon = parseFloat(geoData[0].lon);
+                if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
+                  lat = resultLat;
+                  lon = resultLon;
+                  console.log(`✓ ${activityName}: Geocoded via city/state from Column G`);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(`Geocode error for city/state: ${e.message}`);
+          }
+        }
+      }
+
+      // Only add event if we have valid coordinates (no Kansas fallback)
+      if (lat !== null && lon !== null) {
+        events.push({
+          id: activityName,
+          title: activityName,
+          hostOrganization: org,
+          date,
+          time,
+          description,
+          address: location,
+          zip,
+          lat,
+          lon
+        });
+      } else {
+        console.warn(`✗ ${activityName}: No valid coordinates found, event skipped`);
+      }
     }
 
+    console.log(`Total events with valid coordinates: ${events.length}`);
     return res.status(200).json({ count: events.length, data: events });
   } catch (error) {
     console.error(error);
