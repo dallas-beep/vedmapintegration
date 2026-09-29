@@ -73,14 +73,15 @@ module.exports = async (req, res) => {
       if (!row) continue;
       
       const org = (row[2] || '').trim();
-      let zip = (row[7] || '').trim(); // Column H
-      const mailingAddress = (row[6] || '').trim(); // Column G
+      let zip = (row[7] || '').trim();
+      const mailingAddress = (row[6] || '').trim();
       
       let date = (row[11] || '').trim();
       let activityName = (row[12] || '').trim();
       let time = (row[13] || '').trim();
       const location = (row[14] || '').trim();
       const isPublic = (row[15] || '').trim().toLowerCase();
+      const registrationLink = (row[16] || '').trim(); // Column Q
       let description = (row[19] || '').trim();
 
       if (activityName.toUpperCase() === 'TBD' || activityName.toUpperCase() === 'TBA') activityName = 'Coming Soon';
@@ -89,28 +90,22 @@ module.exports = async (req, res) => {
       if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
       if (zip.length === 4) zip = '0' + zip;
 
-      // ONLY filter by Column P = "yes"
       if (isPublic !== 'yes') continue;
 
       let lat = null, lon = null;
 
-      // Strategy 1: Check if zip is in fast dictionary
       if (zip && ZIP_COORDINATES[zip]) {
         lat = ZIP_COORDINATES[zip].lat;
         lon = ZIP_COORDINATES[zip].lon;
-        console.log(`✓ ${activityName}: Found in ZIP_COORDINATES`);
       } 
-      // Strategy 2: Try to geocode the zip
       else if (zip) {
         if (requestCount > 0) await sleep(1500);
         requestCount++;
-
         const query = `${zip} USA`;
         try {
           const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`, {
             headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
           });
-
           if (geoRes.ok) {
             const geoData = await geoRes.json();
             if (geoData && geoData[0]) {
@@ -119,16 +114,14 @@ module.exports = async (req, res) => {
               if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
                 lat = resultLat;
                 lon = resultLon;
-                console.log(`✓ ${activityName}: Geocoded via zip`);
               }
             }
           }
         } catch (e) {
-          console.warn(`Geocode error for ${activityName}: ${e.message}`);
+          console.warn(`Geocode error: ${e.message}`);
         }
       }
 
-      // Strategy 3: Extract zip from Column G (mailing address)
       if (!lat || !lon) {
         const zipMatch = mailingAddress.match(/\b\d{5}(?:-\d{4})?\b/);
         if (zipMatch) {
@@ -136,16 +129,13 @@ module.exports = async (req, res) => {
           if (ZIP_COORDINATES[extractedZip]) {
             lat = ZIP_COORDINATES[extractedZip].lat;
             lon = ZIP_COORDINATES[extractedZip].lon;
-            console.log(`✓ ${activityName}: Found zip in Column G, used ZIP_COORDINATES`);
           } else {
             if (requestCount > 0) await sleep(1500);
             requestCount++;
-
             try {
               const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(extractedZip + ' USA')}`, {
                 headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
               });
-
               if (geoRes.ok) {
                 const geoData = await geoRes.json();
                 if (geoData && geoData[0]) {
@@ -154,34 +144,29 @@ module.exports = async (req, res) => {
                   if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
                     lat = resultLat;
                     lon = resultLon;
-                    console.log(`✓ ${activityName}: Geocoded via extracted zip from Column G`);
                   }
                 }
               }
             } catch (e) {
-              console.warn(`Geocode error for extracted zip: ${e.message}`);
+              console.warn(`Geocode error: ${e.message}`);
             }
           }
         }
       }
 
-      // Strategy 4: Extract city/state from Column G (handles both formats: "City, State" and "City State")
       if (!lat || !lon && mailingAddress) {
         let cityStateMatch = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
         if (!cityStateMatch) {
           cityStateMatch = mailingAddress.match(/([A-Za-z\s]+)\s+([A-Z]{2})(?:\s|\d|$)/);
         }
-        
         if (cityStateMatch) {
           const cityState = `${cityStateMatch[1].trim()}, ${cityStateMatch[2]}`;
           if (requestCount > 0) await sleep(1500);
           requestCount++;
-
           try {
             const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityState)}`, {
               headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
             });
-
             if (geoRes.ok) {
               const geoData = await geoRes.json();
               if (geoData && geoData[0]) {
@@ -190,17 +175,15 @@ module.exports = async (req, res) => {
                 if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
                   lat = resultLat;
                   lon = resultLon;
-                  console.log(`✓ ${activityName}: Geocoded via city/state from Column G`);
                 }
               }
             }
           } catch (e) {
-            console.warn(`Geocode error for city/state: ${e.message}`);
+            console.warn(`Geocode error: ${e.message}`);
           }
         }
       }
 
-      // Only add event if we have valid coordinates (no Kansas fallback)
       if (lat !== null && lon !== null) {
         events.push({
           id: activityName,
@@ -211,15 +194,13 @@ module.exports = async (req, res) => {
           description,
           address: location,
           zip,
+          registrationLink,
           lat,
           lon
         });
-      } else {
-        console.warn(`✗ ${activityName}: No valid coordinates found, event skipped`);
       }
     }
 
-    console.log(`Total events with valid coordinates: ${events.length}`);
     return res.status(200).json({ count: events.length, data: events });
   } catch (error) {
     console.error(error);
