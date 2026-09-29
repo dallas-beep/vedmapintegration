@@ -28,8 +28,23 @@ const ZIP_COORDINATES = {
   "37663": { lat: 35.0456, lon: -85.3097 }, // Chattanooga, TN
   "38301": { lat: 35.6264, lon: -88.8161 }, // Jackson, TN
   "32210": { lat: 30.2796, lon: -81.7617 }, // Jacksonville, FL
+  "32224": { lat: 30.2796, lon: -81.7617 }, // Jacksonville, FL
   "33770": { lat: 37.9150, lon: -82.6054 }, // Largo, FL
-  "11237": { lat: 40.7041, lon: -73.9185 }  // Brooklyn, NY
+  "11237": { lat: 40.7041, lon: -73.9185 }, // Brooklyn, NY
+  "53144": { lat: 42.5848, lon: -87.8237 }, // Kenosha, WI
+  "28398": { lat: 36.3857, lon: -80.1125 }, // Warsaw, NC
+  "43606": { lat: 41.6639, lon: -83.5814 }, // Toledo, OH
+  "72703": { lat: 36.0822, lon: -94.1719 }, // Fayetteville, AR
+  "76542": { lat: 31.1090, lon: -97.2272 }, // Killeen, TX
+  "72601": { lat: 36.2427, lon: -92.6390 }, // Harrison, AR
+  "93274": { lat: 36.2471, lon: -119.7674 }, // Tulare, CA
+  "46803": { lat: 41.1344, lon: -85.1333 }, // Fort Wayne, IN
+  "30088": { lat: 33.9876, lon: -84.0948 }, // Stone Mountain, GA
+  "44114": { lat: 41.4976, lon: -81.6957 }, // Cleveland, OH
+  "30071": { lat: 33.9498, lon: -84.2111 }, // Norcross, GA
+  "30161": { lat: 34.2597, lon: -85.2439 }, // Rome, GA
+  "19119": { lat: 39.9526, lon: -75.2521 }, // Philadelphia, PA
+  "08028": { lat: 39.8036, lon: -75.1937 }, // Glassboro, NJ
 };
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -150,9 +165,13 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Strategy 4: Extract city/state from Column G
+      // Strategy 4: Extract city/state from Column G (handles both formats: "City, State" and "City State")
       if (!lat || !lon && mailingAddress) {
-        const cityStateMatch = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
+        let cityStateMatch = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
+        if (!cityStateMatch) {
+          cityStateMatch = mailingAddress.match(/([A-Za-z\s]+)\s+([A-Z]{2})(?:\s|\d|$)/);
+        }
+        
         if (cityStateMatch) {
           const cityState = `${cityStateMatch[1].trim()}, ${cityStateMatch[2]}`;
           if (requestCount > 0) await sleep(1500);
