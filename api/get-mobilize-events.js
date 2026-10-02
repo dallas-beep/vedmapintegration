@@ -55,15 +55,18 @@ module.exports = async (req, res) => {
 
   try {
     const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
-const GID = '1581051441';
-const csvUrl = `https://api.allorigins.win/raw?url=https://docs.google.com/spreadsheets/d/${SHEET_ID}/export%3Fformat%3Dcsv%26gid%3D${GID}`;
-    
-const response = await fetch(csvUrl, {
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-  }
-});
-    
+    const GID = '1581051441';
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+
+    const response = await fetch(csvUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.google.com/'
+      }
+    });
+
+    if (!response.ok) return res.status(200).json({ count: 0, data: [] });
+
     const csvText = await response.text();
     const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
     const events = [];
@@ -73,7 +76,7 @@ const response = await fetch(csvUrl, {
       try {
         const row = rows[i];
         if (!row) continue;
-        
+
         const org = String(row[2] || '').trim();
         let zip = String(row[7] || '').trim();
         const mailingAddress = String(row[6] || '').trim();
@@ -93,8 +96,7 @@ const response = await fetch(csvUrl, {
         if (zip && ZIP_COORDINATES[zip]) {
           lat = ZIP_COORDINATES[zip].lat;
           lon = ZIP_COORDINATES[zip].lon;
-        } 
-        else if (zip) {
+        } else if (zip) {
           if (requestCount > 0) await sleep(1500);
           requestCount++;
           try {
@@ -122,7 +124,7 @@ const response = await fetch(csvUrl, {
           let cityState = null;
           const match1 = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
           const match2 = mailingAddress.match(/([A-Za-z\s]+)\s+([A-Z]{2})(?:\s|\d|$)/);
-          
+
           if (match1) cityState = `${match1[1].trim()}, ${match1[2]}`;
           else if (match2) cityState = `${match2[1].trim()}, ${match2[2]}`;
 
