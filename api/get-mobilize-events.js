@@ -69,28 +69,20 @@ module.exports = async (req, res) => {
     for (let i = 1; i < rows.length; i++) {
       try {
         const row = rows[i];
-        if (!row || row.length < 20) continue;
+        if (!row) continue;
         
-        const org = (row[2] || '').trim();
-        let zip = (row[7] || '').trim();
-        const mailingAddress = (row[6] || '').trim();
-        
-        let date = (row[11] || '').trim();
-        let activityName = (row[12] || '').trim();
-        let time = (row[13] || '').trim();
-        const location = (row[14] || '').trim();
-        const isPublic = (row[15] || '').trim().toLowerCase();
-        const registrationLink = (row[16] || '').trim();
-        let description = (row[19] || '').trim();
+        const org = String(row[2] || '').trim();
+        let zip = String(row[7] || '').trim();
+        const mailingAddress = String(row[6] || '').trim();
+        const date = String(row[11] || '').trim();
+        let activityName = String(row[12] || '').trim();
+        const time = String(row[13] || '').trim();
+        const location = String(row[14] || '').trim();
+        const isPublic = String(row[15] || '').trim().toLowerCase();
+        const registrationLink = String(row[16] || '').trim();
+        const description = String(row[19] || '').trim();
 
         if (!activityName) continue;
-
-        if (activityName.toUpperCase() === 'TBD' || activityName.toUpperCase() === 'TBA') activityName = 'Coming Soon';
-        if (date.toUpperCase() === 'TBD' || date.toUpperCase() === 'TBA') date = 'Coming Soon';
-        if (time.toUpperCase() === 'TBD' || time.toUpperCase() === 'TBA') time = 'Coming Soon';
-        if (description.toUpperCase() === 'TBD' || description.toUpperCase() === 'TBA') description = 'Coming Soon';
-        if (zip.length === 4) zip = '0' + zip;
-
         if (isPublic !== 'yes') continue;
 
         let lat = null, lon = null;
@@ -108,70 +100,63 @@ module.exports = async (req, res) => {
             });
             if (geoRes.ok) {
               const geoData = await geoRes.json();
-              if (geoData && geoData[0]) {
-                const resultLat = parseFloat(geoData[0].lat);
-                const resultLon = parseFloat(geoData[0].lon);
-                if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
-                  lat = resultLat;
-                  lon = resultLon;
+              if (geoData && geoData.length > 0) {
+                lat = parseFloat(geoData[0].lat);
+                lon = parseFloat(geoData[0].lon);
+                if (!(lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66)) {
+                  lat = null;
+                  lon = null;
                 }
               }
             }
           } catch (e) {
-            console.warn(`Geocode error for zip: ${e.message}`);
+            lat = null;
+            lon = null;
           }
         }
 
-        if ((!lat || !lon) && mailingAddress && mailingAddress.length > 0) {
-          let cityStateMatch = null;
-          try {
-            cityStateMatch = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
-            if (!cityStateMatch) {
-              cityStateMatch = mailingAddress.match(/([A-Za-z\s]+)\s+([A-Z]{2})(?:\s|\d|$)/);
-            }
-          } catch (e) {
-            console.warn(`Regex error: ${e.message}`);
-          }
+        if ((!lat || !lon) && mailingAddress) {
+          let cityState = null;
+          const match1 = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
+          const match2 = mailingAddress.match(/([A-Za-z\s]+)\s+([A-Z]{2})(?:\s|\d|$)/);
           
-          if (cityStateMatch) {
-            const cityState = `${cityStateMatch[1].trim()}, ${cityStateMatch[2]}`;
+          if (match1) cityState = `${match1[1].trim()}, ${match1[2]}`;
+          else if (match2) cityState = `${match2[1].trim()}, ${match2[2]}`;
+
+          if (cityState) {
             if (requestCount > 0) await sleep(1500);
             requestCount++;
-
             try {
               const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityState)}`, {
                 headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
               });
-
               if (geoRes.ok) {
                 const geoData = await geoRes.json();
-                if (geoData && geoData[0]) {
-                  const resultLat = parseFloat(geoData[0].lat);
-                  const resultLon = parseFloat(geoData[0].lon);
-                  if (resultLat >= 24 && resultLat <= 49 && resultLon >= -125 && resultLon <= -66) {
-                    lat = resultLat;
-                    lon = resultLon;
+                if (geoData && geoData.length > 0) {
+                  lat = parseFloat(geoData[0].lat);
+                  lon = parseFloat(geoData[0].lon);
+                  if (!(lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66)) {
+                    lat = null;
+                    lon = null;
                   }
                 }
               }
             } catch (e) {
-              console.warn(`Geocode error for city/state: ${e.message}`);
+              lat = null;
+              lon = null;
             }
           }
         }
 
-        if (!lat || !lon) {
-          const zipMatch = mailingAddress.match(/\b\d{5}(?:-\d{4})?\b/);
-          if (zipMatch) {
-            const extractedZip = zipMatch[0];
-            if (ZIP_COORDINATES[extractedZip]) {
-              lat = ZIP_COORDINATES[extractedZip].lat;
-              lon = ZIP_COORDINATES[extractedZip].lon;
-            }
+        if (!lat && mailingAddress) {
+          const zipMatch = mailingAddress.match(/\b\d{5}\b/);
+          if (zipMatch && ZIP_COORDINATES[zipMatch[0]]) {
+            lat = ZIP_COORDINATES[zipMatch[0]].lat;
+            lon = ZIP_COORDINATES[zipMatch[0]].lon;
           }
         }
 
-        if (lat !== null && lon !== null) {
+        if (lat && lon) {
           events.push({
             id: activityName,
             title: activityName,
@@ -180,20 +165,20 @@ module.exports = async (req, res) => {
             time,
             description,
             address: location,
-            registrationLink: registrationLink.length > 0 ? registrationLink : null,
+            registrationLink: registrationLink || null,
             zip,
             lat,
             lon
           });
         }
       } catch (rowError) {
-        console.error(`Error processing row ${i}: ${rowError.message}`);
+        console.error(`Row ${i} error: ${rowError.message}`);
       }
     }
 
     return res.status(200).json({ count: events.length, data: events });
   } catch (error) {
-    console.error(`API Error: ${error.message}`);
+    console.error(`API error: ${error.message}`);
     return res.status(200).json({ count: 0, data: [] });
   }
 };
