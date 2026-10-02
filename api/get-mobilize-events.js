@@ -56,8 +56,8 @@ module.exports = async (req, res) => {
   try {
     const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
 const GID = '1581051441';
-const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
-
+const csvUrl = `https://api.allorigins.win/raw?url=https://docs.google.com/spreadsheets/d/${SHEET_ID}/export%3Fformat%3Dcsv%26gid%3D${GID}`;
+    
 const response = await fetch(csvUrl, {
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
