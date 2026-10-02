@@ -45,143 +45,61 @@ const ZIP_COORDINATES = {
   "08028": { lat: 39.8036, lon: -75.1937 },
 };
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
-  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
-
+  
   try {
-    const SHEET_ID = '1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s';
-const GID = '1581051441';
-const csvUrl = `https://api.allorigins.win/raw?url=https://docs.google.com/spreadsheets/d/${SHEET_ID}/export%3Fformat%3Dcsv%26gid%3D${GID}`;
-    
-const response = await fetch(csvUrl, {
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-  }
-});
-    
-    const csvText = await response.text();
-    const rows = parse(csvText, { skip_empty_lines: true, relax_column_count: true });
+    const url = `https://docs.google.com/spreadsheets/d/1dO027VAM1PwKrv07DkU1tIPMKTbfRMtmr9gU9jppl4s/export?format=csv&gid=1581051441`;
+    const resp = await fetch(url);
+    const csv = await resp.text();
+    const rows = parse(csv, { skip_empty_lines: true, relax_column_count: true });
     const events = [];
-    let requestCount = 0;
 
     for (let i = 1; i < rows.length; i++) {
-      try {
-        const row = rows[i];
-        if (!row) continue;
-        
-        const org = String(row[2] || '').trim();
-        let zip = String(row[7] || '').trim();
-        const mailingAddress = String(row[6] || '').trim();
-        const date = String(row[11] || '').trim();
-        let activityName = String(row[12] || '').trim();
-        const time = String(row[13] || '').trim();
-        const location = String(row[14] || '').trim();
-        const isPublic = String(row[15] || '').trim().toLowerCase();
-        const registrationLink = String(row[16] || '').trim();
-        const description = String(row[19] || '').trim();
+      const row = rows[i];
+      if (!row || !row[12]) continue;
+      if (row[15]?.toLowerCase() !== 'yes') continue;
 
-        if (!activityName) continue;
-        if (isPublic !== 'yes') continue;
+      const zip = String(row[7] || '').trim();
+      const addr = String(row[6] || '').trim();
+      
+      let lat = null, lon = null;
 
-        let lat = null, lon = null;
-
-        if (zip && ZIP_COORDINATES[zip]) {
-          lat = ZIP_COORDINATES[zip].lat;
-          lon = ZIP_COORDINATES[zip].lon;
-        } 
-        else if (zip) {
-          if (requestCount > 0) await sleep(1500);
-          requestCount++;
-          try {
-            const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zip + ' USA')}`, {
-              headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
-            });
-            if (geoRes.ok) {
-              const geoData = await geoRes.json();
-              if (geoData && geoData.length > 0) {
-                lat = parseFloat(geoData[0].lat);
-                lon = parseFloat(geoData[0].lon);
-                if (!(lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66)) {
-                  lat = null;
-                  lon = null;
-                }
-              }
-            }
-          } catch (e) {
-            lat = null;
-            lon = null;
-          }
-        }
-
-        if ((!lat || !lon) && mailingAddress) {
-          let cityState = null;
-          const match1 = mailingAddress.match(/([A-Za-z\s]+),\s*([A-Z]{2})/);
-          const match2 = mailingAddress.match(/([A-Za-z\s]+)\s+([A-Z]{2})(?:\s|\d|$)/);
-          
-          if (match1) cityState = `${match1[1].trim()}, ${match1[2]}`;
-          else if (match2) cityState = `${match2[1].trim()}, ${match2[2]}`;
-
-          if (cityState) {
-            if (requestCount > 0) await sleep(1500);
-            requestCount++;
-            try {
-              const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityState)}`, {
-                headers: { 'User-Agent': 'VoteEarlyDayMap/1.0 (voteearlyday.org)' }
-              });
-              if (geoRes.ok) {
-                const geoData = await geoRes.json();
-                if (geoData && geoData.length > 0) {
-                  lat = parseFloat(geoData[0].lat);
-                  lon = parseFloat(geoData[0].lon);
-                  if (!(lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66)) {
-                    lat = null;
-                    lon = null;
-                  }
-                }
-              }
-            } catch (e) {
-              lat = null;
-              lon = null;
+      if (zip && ZIP_COORDINATES[zip]) {
+        lat = ZIP_COORDINATES[zip].lat;
+        lon = ZIP_COORDINATES[zip].lon;
+      } else if (addr) {
+        try {
+          const m = addr.match(/([A-Za-z\s]+)\s+([A-Z]{2})/);
+          if (m) {
+            const gr = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(m[1].trim() + ', ' + m[2])}`);
+            const gd = await gr.json();
+            if (gd.length > 0) {
+              lat = parseFloat(gd[0].lat);
+              lon = parseFloat(gd[0].lon);
             }
           }
-        }
+        } catch (e) {}
+      }
 
-        if (!lat && mailingAddress) {
-          const zipMatch = mailingAddress.match(/\b\d{5}\b/);
-          if (zipMatch && ZIP_COORDINATES[zipMatch[0]]) {
-            lat = ZIP_COORDINATES[zipMatch[0]].lat;
-            lon = ZIP_COORDINATES[zipMatch[0]].lon;
-          }
-        }
-
-        if (lat && lon) {
-          events.push({
-            id: activityName,
-            title: activityName,
-            hostOrganization: org,
-            date,
-            time,
-            description,
-            address: location,
-            registrationLink: registrationLink || null,
-            zip,
-            lat,
-            lon
-          });
-        }
-      } catch (rowError) {
-        console.error(`Row ${i} error: ${rowError.message}`);
+      if (lat && lon) {
+        events.push({
+          title: String(row[12] || '').trim(),
+          hostOrganization: String(row[2] || '').trim(),
+          date: String(row[11] || '').trim(),
+          time: String(row[13] || '').trim(),
+          address: String(row[14] || '').trim(),
+          description: String(row[19] || '').trim(),
+          registrationLink: String(row[16] || '').trim() || null,
+          lat,
+          lon
+        });
       }
     }
 
-    return res.status(200).json({ count: events.length, data: events });
-  } catch (error) {
-    console.error(`API error: ${error.message}`);
-    return res.status(200).json({ count: 0, data: [] });
+    res.json({ count: events.length, data: events });
+  } catch (e) {
+    res.json({ count: 0, data: [] });
   }
 };
