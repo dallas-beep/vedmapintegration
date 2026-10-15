@@ -1,202 +1,189 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vote Early Day 2026 - Event Map</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <style>
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
-    body { display: flex; flex-direction: column; overflow: hidden; }
-         
-    header { background: #5c2d91; color: #fff; padding: 16px 20px; text-align: center; flex-shrink: 0; }
-    header h1 { margin: 0; font-size: 20px; font-weight: 800; }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vote Early Day 2026 Event Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: Helvetica, Arial, sans-serif; color: #2b1a40; background: #fff; }
+  body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  #app { display: flex; flex: 1; min-height: 0; }
+  #sidebar { width: 340px; display: flex; flex-direction: column; border-right: 2px solid #5c2d91; background: #fff; }
+  #tools { padding: 10px; background: #5c2d91; }
+  #search { width: 100%; padding: 8px 10px; border: none; border-radius: 6px; font-size: 14px; }
+  .tool-row { display: flex; gap: 8px; margin-top: 8px; }
+  #radius, #locate { flex: 1; padding: 7px 8px; border: none; border-radius: 6px; font-size: 13px; }
+  #locate { background: #fff; color: #5c2d91; font-weight: 700; cursor: pointer; }
+  #status { color: #fff; font-size: 12px; margin-top: 8px; min-height: 16px; }
+  #eventList { flex: 1; overflow-y: auto; }
+  .event-item { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; }
+  .event-item:hover { background: #f4eefa; }
+  .event-item h4 { margin: 0 0 4px; font-size: 14px; color: #551b7a; }
+  .event-item p { margin: 2px 0; font-size: 12px; color: #444; }
+  .empty { padding: 16px; font-size: 14px; color: #666; }
+  #map { flex: 1; min-height: 0; }
 
-    /* Mobile View Toggle Bar (Hidden on Desktop) */
-    .mobile-nav-toggle { display: none; background: #4a2373; padding: 10px; justify-content: center; gap: 10px; flex-shrink: 0; }
-    .mobile-nav-toggle button { background: #fff; color: #5c2d91; border: none; padding: 8px 16px; border-radius: 20px; font-weight: 700; font-size: 13px; cursor: pointer; }
-    .mobile-nav-toggle button.active { background: #6cb090; color: #fff; }
-
-    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; background: #f8fafc; min-height: 0; position: relative; }
-    .sidebar { display: flex; flex-direction: column; min-height: 0; gap: 12px; padding: 16px; overflow-y: auto; background: #f8fafc; }
-    .controls { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; flex-shrink: 0; }
-    .search { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
-    .control-row { display: flex; gap: 8px; margin-top: 10px; }
-    select, .location-button { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font-size: 13px; }
-    .location-button { cursor: pointer; color: #fff; background: #551b7a; border-color: #551b7a; }
-    .location-button:hover { background: #6cb090; border-color: #6cb090; }
-    h2 { margin: 0; font-size: 16px; flex-shrink: 0; }
-    .status { padding: 8px 12px; border-radius: 8px; background: #551b7a; color: #fff; font-size: 12px; font-weight: 600; text-align: center; flex-shrink: 0; }
-    .event-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex: 1; }
-    .event-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; cursor: pointer; flex-shrink: 0; }
-    .event-card:hover { border-color: #6cb090; transform: translateY(-1px); }
-    .event-card h3 { margin: 0 0 6px 0; color: #551b7a; font-size: 15px; font-weight: 700; }
-    .event-card p { margin: 4px 0; color: #475569; font-size: 13px; line-height: 1.35; }
-    .empty { padding: 22px 14px; text-align: center; color: #64748b; font-size: 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
-    
-    #map-container { display: flex; flex: 1; min-height: 0; position: relative; }
-    #map { height: 100%; width: 100%; border: none; }
-
-    .leaflet-popup-content { font-size: 13px; }
-    .leaflet-popup-content h3 { margin: 0 0 10px 0; color: #551b7a; font-weight: 700; }
-    .leaflet-popup-content p { margin: 6px 0; line-height: 1.4; }
-
-    /* Mobile Responsive Adaptation */
-    @media (max-width: 850px) {
-      .mobile-nav-toggle { display: flex; }
-      .layout { display: flex; flex-direction: column; }
-      /* Default mobile view: Show Map, hide Sidebar */
-      .sidebar { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 10; background: #f8fafc; padding: 12px; }
-      #map-container { display: flex; width: 100%; height: 100%; }
-      
-      /* States controlled via body classes */
-      body.show-list .sidebar { display: flex; }
-      body.show-list #map-container { display: none; }
-    }
-  </style>
+  @media (max-width: 768px) {
+    #app { flex-direction: column; }
+    #sidebar { width: 100%; height: 30vh; border-right: none; border-bottom: 2px solid #5c2d91; }
+    #map { flex: 1; height: auto; }
+  }
+</style>
 </head>
 <body>
-  <header>
-    <h1>Find Your Local Vote Early Day Celebration</h1>
-  </header>
-
-  <!-- Mobile View Toggle -->
-  <div class="mobile-nav-toggle">
-    <button id="btnMap" class="active" onclick="setMobileView('map')">🗺️ Map View</button>
-    <button id="btnList" onclick="setMobileView('list')">📋 Event List (<span id="eventCountBadge">0</span>)</button>
-  </div>
-
-  <main class="layout">
-    <aside id="sidebar" class="sidebar">
-      <div class="controls">
-        <input id="search" class="search" type="search" placeholder="Search events..." />
-        <div class="control-row">
-          <select id="radius">
-            <option value="all">Any distance</option>
-            <option value="5">5 miles</option>
-            <option value="10">10 miles</option>
-            <option value="25">25 miles</option>
-          </select>
-          <button id="location" class="location-button">Use location</button>
-        </div>
+<div id="app">
+  <aside id="sidebar">
+    <div id="tools">
+      <input id="search" type="search" placeholder="Search events, organizations, places">
+      <div class="tool-row">
+        <select id="radius">
+          <option value="">Any distance</option>
+          <option value="5">Within 5 miles</option>
+          <option value="10">Within 10 miles</option>
+          <option value="25">Within 25 miles</option>
+        </select>
+        <button id="locate" type="button">Use my location</button>
       </div>
-      <h2>Events</h2>
-      <div id="eventList" class="event-list"><div class="empty">Loading may be slow due to high volume of events...</div></div>
-      <div id="status" class="status">Connecting...</div>
-    </aside>
-    <div id="map-container">
-      <div id="map"></div>
+      <div id="status">Loading events...</div>
     </div>
-  </main>
+    <div id="eventList"></div>
+  </aside>
+  <div id="map"></div>
+</div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script>
-    const map = L.map('map').setView([39.8283, -98.5795], 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-    const markerLayer = L.featureGroup().addTo(map);
-    let allEvents = [];
-    let userLocation = null;
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  let allEvents = [];
+  let userPos = null;
+  const markers = L.layerGroup();
 
-    function setMobileView(view) {
-      const body = document.body;
-      const btnMap = document.getElementById('btnMap');
-      const btnList = document.getElementById('btnList');
-      if (view === 'map') {
-        body.classList.remove('show-list');
-        btnMap.classList.add('active');
-        btnList.classList.remove('active');
-        setTimeout(() => map.invalidateSize(), 100); // Fix Leaflet render grey tiles bug
-      } else {
-        body.classList.add('show-list');
-        btnList.classList.add('active');
-        btnMap.classList.remove('active');
-      }
+  const map = L.map('map').setView([39.8, -98.6], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  markers.addTo(map);
+
+  const searchEl = document.getElementById('search');
+  const radiusEl = document.getElementById('radius');
+  const listEl = document.getElementById('eventList');
+  const statusEl = document.getElementById('status');
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function safeUrl(u) {
+    return /^https?:\/\//i.test(u || '') ? u : null;
+  }
+
+  function distanceMiles(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  function popupHtml(e) {
+    const url = safeUrl(e.registrationLink);
+    return `
+      <div style="max-width:280px; font-size:14px; line-height:1.4;">
+        <h3 style="margin:0 0 8px; color:#551b7a; font-size:16px;">${escapeHtml(e.title)}</h3>
+        ${e.hostOrganization ? `<p style="margin:4px 0;"><strong>Organization:</strong> ${escapeHtml(e.hostOrganization)}</p>` : ''}
+        ${e.date ? `<p style="margin:4px 0;"><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
+        ${e.time ? `<p style="margin:4px 0;"><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
+        ${e.address ? `<p style="margin:4px 0;"><strong>Location:</strong> ${escapeHtml(e.address)}</p>` : ''}
+        ${e.description ? `<p style="margin:4px 0; max-height:140px; overflow-y:auto;"><strong>Details:</strong> ${escapeHtml(e.description)}</p>` : ''}
+        ${url ? `<p style="margin:10px 0 0;"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; padding:9px 18px; background:#6cc4a1; color:#3a1d5c; text-decoration:none; border-radius:6px; font-weight:700;">RSVP</a></p>` : ''}
+      </div>`;
+  }
+
+  function focusEvent(e) {
+    map.setView([e.lat, e.lon], Math.max(map.getZoom(), 9));
+    if (e._marker) e._marker.openPopup();
+  }
+
+  function render(list) {
+    markers.clearLayers();
+    listEl.innerHTML = '';
+
+    if (list.length === 0) {
+      listEl.innerHTML = '<div class="empty">No events match your search.</div>';
     }
 
-    const escapeHtml = (v) => String(v || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-    
-    function milesBetween(a, b) {
-      const toRad = d => d * Math.PI / 180;
-      const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
-      const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon/2)**2;
-      return 3958.8 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
-    }
+    list.forEach(e => {
+      e._marker = L.marker([e.lat, e.lon]).bindPopup(popupHtml(e));
+      e._marker.addTo(markers);
 
-    function filter() {
-      const q = document.getElementById('search').value.toLowerCase();
-      const r = document.getElementById('radius').value;
-      const filtered = allEvents.filter(e => {
-        const match = !q || e.title.toLowerCase().includes(q) || e.address.toLowerCase().includes(q);
-        const dist = userLocation ? milesBetween(userLocation, e) : null;
-        return match && (r === 'all' || !dist || dist <= Number(r));
-      });
-      render(filtered);
-    }
-
-    function render(events) {
-      markerLayer.clearLayers();
-      const list = document.getElementById('eventList');
-      list.innerHTML = '';
-      
-      document.getElementById('eventCountBadge').textContent = events.length;
-
-      if (!events.length) { 
-        list.innerHTML = '<div class="empty">No events found</div>'; 
-        return; 
-      }
-
-      events.forEach(e => {
-        const popupHtml = `
-          <div style="max-width: 280px;">
-            <h3 style="margin: 0 0 8px 0; color: #551b7a; font-size: 15px; font-weight: 700;">${escapeHtml(e.title)}</h3>
-            ${e.hostOrganization ? `<p style="margin: 4px 0;"><strong>Organization:</strong> ${escapeHtml(e.hostOrganization)}</p>` : ''}
-            ${e.date ? `<p style="margin: 4px 0;"><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
-            ${e.time ? `<p style="margin: 4px 0;"><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
-            ${e.address ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${escapeHtml(e.address)}</p>` : ''}
-            ${e.description ? `<p style="margin: 4px 0;"><strong>Details:</strong> ${escapeHtml(e.description)}</p>` : ''}
-          </div>
-        `;
-        const marker = L.marker([e.lat, e.lon]).bindPopup(popupHtml).addTo(markerLayer);
-                 
-        const card = document.createElement('div');
-        card.className = 'event-card';
-        card.innerHTML = `
-          <h3>${escapeHtml(e.title)}</h3>
-          ${e.hostOrganization ? `<p><strong>${escapeHtml(e.hostOrganization)}</strong></p>` : ''}
-          ${e.date ? `<p><strong>Date:</strong> ${escapeHtml(e.date)}</p>` : ''}
-          ${e.time ? `<p><strong>Time:</strong> ${escapeHtml(e.time)}</p>` : ''}
-          <p>${escapeHtml(e.address)}</p>
-        `;
-        // When clicking an event card on mobile, jump to map view and zoom in on that marker
-        card.addEventListener('click', () => {
-          map.setView([e.lat, e.lon], 13);
-          setMobileView('map');
-          marker.openPopup();
-        });
-        list.appendChild(card);
-      });
-      document.getElementById('status').textContent = `${events.length} event${events.length===1?'':'s'}`;
-    }
-
-    document.getElementById('search').addEventListener('input', filter);
-    document.getElementById('radius').addEventListener('change', filter);
-    document.getElementById('location').addEventListener('click', () => {
-      if (!navigator.geolocation) return;
-      navigator.geolocation.getCurrentPosition(p => {
-        userLocation = {lat: p.coords.latitude, lon: p.coords.longitude};
-        map.setView([userLocation.lat, userLocation.lon], 10);
-        filter();
-      });
+      const item = document.createElement('div');
+      item.className = 'event-item';
+      item.innerHTML = `
+        <h4>${escapeHtml(e.title)}</h4>
+        ${e.hostOrganization ? `<p>${escapeHtml(e.hostOrganization)}</p>` : ''}
+        ${e.date ? `<p>${escapeHtml(e.date)}${e.time ? ' | ' + escapeHtml(e.time) : ''}</p>` : ''}
+        ${e.address ? `<p>${escapeHtml(e.address)}</p>` : ''}`;
+      item.addEventListener('click', () => focusEvent(e));
+      listEl.appendChild(item);
     });
 
-    fetch('/api/get-mobilize-events').then(r => r.json()).then(d => {
-      allEvents = (d.data || []).filter(e => !isNaN(e.lat) && !isNaN(e.lon));
-      filter();
-    }).catch(e => {
-      console.error(e);
-      document.getElementById('eventList').innerHTML = '<div class="empty">Map may load slowly due to high volume events added at once.</div>';
+    const distNote = userPos && radiusEl.value ? ` within ${radiusEl.value} miles` : '';
+    statusEl.textContent = `Showing ${list.length} of ${allEvents.length} events${distNote}`;
+  }
+
+  function applyFilters() {
+    const q = searchEl.value.trim().toLowerCase();
+    const r = Number(radiusEl.value);
+
+    const list = allEvents.filter(e => {
+      const haystack = `${e.title} ${e.hostOrganization} ${e.address} ${e.description}`.toLowerCase();
+      if (q && !haystack.includes(q)) return false;
+      if (r && userPos && distanceMiles(userPos.lat, userPos.lon, e.lat, e.lon) > r) return false;
+      return true;
     });
-  </script>
+
+    render(list);
+  }
+
+  searchEl.addEventListener('input', applyFilters);
+  radiusEl.addEventListener('change', applyFilters);
+
+  document.getElementById('locate').addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      statusEl.textContent = 'Location is not available in this browser.';
+      return;
+    }
+    statusEl.textContent = 'Finding your location...';
+    navigator.geolocation.getCurrentPosition(pos => {
+      userPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      if (!radiusEl.value) radiusEl.value = '25';
+      map.setView([userPos.lat, userPos.lon], 9);
+      applyFilters();
+    }, () => {
+      statusEl.textContent = 'Could not get your location. You can still search by keyword.';
+    });
+  });
+
+  fetch('/api/get-mobilize-events')
+    .then(r => r.json())
+    .then(d => {
+      allEvents = (d.data || []).filter(e => Number.isFinite(e.lat) && Number.isFinite(e.lon));
+      if (allEvents.length) {
+        map.fitBounds(L.latLngBounds(allEvents.map(e => [e.lat, e.lon])), { padding: [20, 20] });
+      }
+      applyFilters();
+    })
+    .catch(err => {
+      console.error(err);
+      statusEl.textContent = 'Error loading events. Please refresh the page.';
+      listEl.innerHTML = '<div class="empty">Error loading events</div>';
+    });
+</script>
 </body>
 </html>
