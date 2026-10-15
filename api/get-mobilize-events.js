@@ -18,7 +18,6 @@ module.exports = async (req, res) => {
         'Referer': 'https://www.google.com/'
       }
     });
-
     if (!response.ok) return res.status(200).json({ count: 0, data: [] });
 
     const csvText = await response.text();
@@ -28,7 +27,7 @@ module.exports = async (req, res) => {
     for (let i = 1; i < rows.length; i++) {
       try {
         const row = rows[i];
-        if (!row || row.length < 22) continue;
+        if (!row) continue;
 
         const org = String(row[2] || '').trim();
         const date = String(row[11] || '').trim();
@@ -40,18 +39,14 @@ module.exports = async (req, res) => {
 
         if (!activityName || isPublic !== 'yes') continue;
 
-        // Column Q: keep only a real http(s) link, otherwise null
+        // Column Q: pull out the first real web address, otherwise null.
+        // Stops before ] ) " ' < > so markdown-style text is handled.
         const rawLink = String(row[16] || '').trim();
-        const linkMatch = rawLink.match(/https?:\/\/[^\s]+/i);
-        const registrationLink = linkMatch ? linkMatch[0].replace(/[),.;]+$/, '') : null;
+        const linkMatch = rawLink.match(/https?:\/\/[^\s\]\)"'<>]+/i);
+        const registrationLink = linkMatch ? linkMatch[0].replace(/[.,;]+$/, '') : null;
 
-        const latStr = String(row[20] || '').trim();
-        const lonStr = String(row[21] || '').trim();
-        if (!latStr || !lonStr) continue;
-
-        const lat = parseFloat(latStr);
-        const lon = parseFloat(lonStr);
-
+        const lat = parseFloat(String(row[20] || '').trim());
+        const lon = parseFloat(String(row[21] || '').trim());
         if (isNaN(lat) || isNaN(lon)) continue;
         if (!(lat >= 24 && lat <= 49 && lon >= -125 && lon <= -66)) continue;
 
