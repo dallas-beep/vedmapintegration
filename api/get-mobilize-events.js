@@ -36,14 +36,17 @@ module.exports = async (req, res) => {
         const time = String(row[13] || '').trim();
         const location = String(row[14] || '').trim();
         const isPublic = String(row[15] || '').trim().toLowerCase();
-        const registrationLink = String(row[16] || '').trim();
         const description = String(row[19] || '').trim();
 
         if (!activityName || isPublic !== 'yes') continue;
 
+        // Column Q: keep only a real http(s) link, otherwise null
+        const rawLink = String(row[16] || '').trim();
+        const linkMatch = rawLink.match(/https?:\/\/[^\s]+/i);
+        const registrationLink = linkMatch ? linkMatch[0].replace(/[),.;]+$/, '') : null;
+
         const latStr = String(row[20] || '').trim();
         const lonStr = String(row[21] || '').trim();
-
         if (!latStr || !lonStr) continue;
 
         const lat = parseFloat(latStr);
@@ -60,7 +63,7 @@ module.exports = async (req, res) => {
           time,
           description,
           address: location,
-          registrationLink: registrationLink || null,
+          registrationLink,
           lat,
           lon
         });
